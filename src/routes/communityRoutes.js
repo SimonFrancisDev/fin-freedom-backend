@@ -5,7 +5,7 @@ import {
   getCommunityEvents,
   getCommunitySocialLinks,
   getCommunityResources,
-} from '../controllers/CommunityController.js';
+} from '../controllers/communityController.js';
 
 import {
   getCommunityMemberSummary,
