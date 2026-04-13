@@ -2,7 +2,8 @@ import app from './app.js';
 import { connectDB } from './config/db.js';
 import { connectBlockchain } from './blockchain/provider.js';
 import { verifyContracts } from './blockchain/contracts.js';
-import { startIndexer } from './services/read/indexerService.js';
+// import { startIndexer } from './services/read/indexerService.js'
+import { startIndexer } from './services/indexerService.js';
 import env from './config/env.js';
 
 async function startServer() {
