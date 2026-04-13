@@ -6,7 +6,7 @@ import { processUserEvent } from './userProcessor.js';
 export const processEvent = async (event) => {
   try {
     // 1. Deduplicate (CRITICAL)
-    const exists = await RawEvent.findOne({
+    const exists = await RawEvent.exists({
       transactionHash: event.transactionHash,
       logIndex: event.logIndex
     });

@@ -3,7 +3,7 @@ import IndexedReceipt from '../models/IndexedReceipt.js';
 import IndexedOrbitEvent from '../models/IndexedOrbitEvent.js';
 import IndexedRegistrationEvent from '../models/IndexedRegistrationEvent.js';
 import { getContracts } from '../blockchain/contracts.js';
-import { getProvider } from '../blockchain/provider.js';
+import { getProvider, safeRpcCall } from '../blockchain/provider.js';
 import { getStartBlocks, getSyncConfig } from '../config/syncConfig.js';
 
 function isBlockRangeLimitError(error) {
@@ -65,7 +65,8 @@ async function getBlockCached(provider, blockNumber) {
     return blockCache.get(key);
   }
 
-  const block = await provider.getBlock(blockNumber);
+  // const block = await provider.getBlock(blockNumber);
+  const blcok = await safeRpcCall(() => provider.getBlock(blockNumber))
 
   if (block) {
     blockCache.set(key, block);
@@ -218,11 +219,19 @@ async function processLogsForContract({
     `[Indexer] scanning ${contractKey} blocks ${fromBlock}-${toBlock} address=${contractAddress}`
   );
 
-  const logs = await provider.getLogs({
-    address: contractAddress,
-    fromBlock,
-    toBlock,
-  });
+  // const logs = await provider.getLogs({
+  //   address: contractAddress,
+  //   fromBlock,
+  //   toBlock,
+  // });
+
+  const logs = await safeRpcCall(() => 
+    provider.getLogs({
+      address: contractAddress,
+      fromBlock,
+      toBlock,
+    })
+  )
 
   console.log(
     `[Indexer] ${contractKey} raw logs found: ${logs.length} in blocks ${fromBlock}-${toBlock}`
@@ -393,9 +402,11 @@ export async function runIndexerOnce() {
     try {
       let fromBlock = nextFrom;
       let activeChunkSize = sync.chunkSize;
+      activeChunkSize = Math.min(activeChunkSize, 3)
       let retryDelayMs = 2000;
 
       while (fromBlock <= safeBlock) {
+        await sleep(300)
         const toBlock = Math.min(fromBlock + activeChunkSize - 1, safeBlock);
 
         try {
