@@ -18,8 +18,38 @@ const app = express();
 
 app.set('trust proxy', 1);
 
-app.use(helmet());
-app.use(cors());
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  })
+);
+
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'https://fin-freedom-backend-3.onrender.com',
+  'https://ffn-backend-qx15.onrender.com',
+].filter(Boolean);
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(null, true);
+    },
+    credentials: false,
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', env.ADMIN_API_HEADER || 'x-admin-key'],
+  })
+);
+
+app.options('*', cors());
+
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -33,6 +63,7 @@ app.use(
       ok: false,
       message: 'Too many requests. Please try again shortly.',
     },
+    skip: (req) => req.path === '/api/health' || req.path === '/',
   })
 );
 
@@ -89,6 +120,9 @@ export default app;
 
 
 
+
+
+
 // import express from 'express';
 // import cors from 'cors';
 // import helmet from 'helmet';
@@ -102,7 +136,7 @@ export default app;
 // import orbitEventRoutes from './routes/orbitEventRoutes.js';
 // import orbitRoutes from './routes/orbitRoutes.js';
 // import communityRoutes from './routes/communityRoutes.js';
-// import adminCommunityRoutes from './routes/adminCommunityRoutes.js'
+// import adminCommunityRoutes from './routes/adminCommunityRoutes.js';
 // import supportRoutes from './routes/supportRoutes.js';
 
 // const app = express();
@@ -114,13 +148,16 @@ export default app;
 // app.use(express.json({ limit: '2mb' }));
 // app.use(express.urlencoded({ extended: true }));
 
-
 // app.use(
 //   rateLimit({
 //     windowMs: env.API_RATE_LIMIT_WINDOW_MS,
 //     max: env.API_RATE_LIMIT_MAX,
 //     standardHeaders: true,
 //     legacyHeaders: false,
+//     message: {
+//       ok: false,
+//       message: 'Too many requests. Please try again shortly.',
+//     },
 //   })
 // );
 
@@ -130,6 +167,7 @@ export default app;
 //   res.status(200).json({
 //     ok: true,
 //     message: 'FinFreedom backend is running',
+//     indexerEnabled: env.RUN_INDEXER,
 //   });
 // });
 
@@ -152,9 +190,15 @@ export default app;
 // app.use((err, req, res, next) => {
 //   console.error(err);
 
-//   res.status(err.status || 500).json({
+//   const status = err.status || 500;
+//   const message =
+//     status >= 500 && env.NODE_ENV === 'production'
+//       ? 'Internal server error'
+//       : err.message || 'Internal server error';
+
+//   res.status(status).json({
 //     ok: false,
-//     message: err.message || 'Internal server error',
+//     message,
 //   });
 // });
 

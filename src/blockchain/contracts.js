@@ -15,12 +15,17 @@ import freedomTokenControllerAbi from './abis/freedomTokenController.abi.json' w
 
 let contractsInstance = null;
 
+function buildOptionalContract(address, abi, provider) {
+  if (!address) return null;
+  return new Contract(address, abi, provider);
+}
+
 export function getContracts() {
   if (contractsInstance) return contractsInstance;
 
   const provider = getProvider();
 
-  contractsInstance = {
+  contractsInstance = Object.freeze({
     provider,
     levelManager: new Contract(addresses.levelManager, levelManagerAbi, provider),
     p4Orbit: new Contract(addresses.p4Orbit, p4OrbitAbi, provider),
@@ -29,24 +34,44 @@ export function getContracts() {
     registration: new Contract(addresses.registration, registrationAbi, provider),
     escrow: new Contract(addresses.escrow, escrowAbi, provider),
     usdt: new Contract(addresses.usdt, usdtAbi, provider),
-    fgtToken: new Contract(addresses.fgtToken, fgtTokenAbi, provider),
-    fgtrToken: new Contract(addresses.fgtrToken, fgtrTokenAbi, provider),
-    freedomTokenController: new Contract(
+
+    fgtToken: buildOptionalContract(addresses.fgtToken, fgtTokenAbi, provider),
+    fgtrToken: buildOptionalContract(addresses.fgtrToken, fgtrTokenAbi, provider),
+    freedomTokenController: buildOptionalContract(
       addresses.freedomTokenController,
       freedomTokenControllerAbi,
       provider
     ),
-  };
+  });
 
   return contractsInstance;
 }
 
+export function hasOptionalContracts() {
+  const contracts = getContracts();
+
+  return {
+    fgtToken: Boolean(contracts.fgtToken),
+    fgtrToken: Boolean(contracts.fgtrToken),
+    freedomTokenController: Boolean(contracts.freedomTokenController),
+  };
+}
+
 async function safeOptionalOwner(contract) {
   try {
-    if (typeof contract?.owner !== 'function') return 'N/A';
+    if (!contract || typeof contract.owner !== 'function') return 'N/A';
     return await safeRpcCall(() => contract.owner());
   } catch {
     return 'N/A';
+  }
+}
+
+async function safeRequiredCall(label, fn) {
+  try {
+    return await safeRpcCall(fn);
+  } catch (error) {
+    error.message = `${label} verification failed: ${error.message}`;
+    throw error;
   }
 }
 
@@ -70,17 +95,22 @@ export async function verifyContracts() {
     fgtrTokenOwner,
     tokenControllerOwner,
   ] = await Promise.all([
-    safeRpcCall(() => contracts.levelManager.owner()),
-    safeRpcCall(() => contracts.levelManager.guardian()),
-    safeRpcCall(() => contracts.levelManager.id1Wallet()),
-    safeRpcCall(() => contracts.p4Orbit.owner()),
-    safeRpcCall(() => contracts.p4Orbit.levelManager()),
-    safeRpcCall(() => contracts.p12Orbit.owner()),
-    safeRpcCall(() => contracts.p12Orbit.levelManager()),
-    safeRpcCall(() => contracts.p39Orbit.owner()),
-    safeRpcCall(() => contracts.p39Orbit.levelManager()),
-    safeRpcCall(() => contracts.registration.owner()),
-    safeRpcCall(() => contracts.escrow.owner()),
+    safeRequiredCall('levelManager.owner', () => contracts.levelManager.owner()),
+    safeRequiredCall('levelManager.guardian', () => contracts.levelManager.guardian()),
+    safeRequiredCall('levelManager.id1Wallet', () => contracts.levelManager.id1Wallet()),
+
+    safeRequiredCall('p4Orbit.owner', () => contracts.p4Orbit.owner()),
+    safeRequiredCall('p4Orbit.levelManager', () => contracts.p4Orbit.levelManager()),
+
+    safeRequiredCall('p12Orbit.owner', () => contracts.p12Orbit.owner()),
+    safeRequiredCall('p12Orbit.levelManager', () => contracts.p12Orbit.levelManager()),
+
+    safeRequiredCall('p39Orbit.owner', () => contracts.p39Orbit.owner()),
+    safeRequiredCall('p39Orbit.levelManager', () => contracts.p39Orbit.levelManager()),
+
+    safeRequiredCall('registration.owner', () => contracts.registration.owner()),
+    safeRequiredCall('escrow.owner', () => contracts.escrow.owner()),
+
     safeOptionalOwner(contracts.usdt),
     safeOptionalOwner(contracts.fgtToken),
     safeOptionalOwner(contracts.fgtrToken),
@@ -149,7 +179,7 @@ export async function verifyContracts() {
 
 
 // import { Contract } from 'ethers';
-// import { getProvider } from './provider.js';
+// import { getProvider, safeRpcCall } from './provider.js';
 // import addresses from './addresses.js';
 
 // import levelManagerAbi from './abis/levelManager.abi.json' with { type: 'json' };
@@ -159,9 +189,9 @@ export async function verifyContracts() {
 // import registrationAbi from './abis/registration.abi.json' with { type: 'json' };
 // import escrowAbi from './abis/escrow.abi.json' with { type: 'json' };
 // import usdtAbi from './abis/usdt.abi.json' with { type: 'json' };
-// import fgtTokenAbi from './abis/fgtToken.abi.json' with { type: 'json'};
-// import fgtrTokenAbi from './abis/fgtrToken.abi.json' with { type: 'json'};
-// import freedomTokenControllerAbi from './abis/freedomTokenController.abi.json' with { type: 'json'};
+// import fgtTokenAbi from './abis/fgtToken.abi.json' with { type: 'json' };
+// import fgtrTokenAbi from './abis/fgtrToken.abi.json' with { type: 'json' };
+// import freedomTokenControllerAbi from './abis/freedomTokenController.abi.json' with { type: 'json' };
 
 // let contractsInstance = null;
 
@@ -181,72 +211,24 @@ export async function verifyContracts() {
 //     usdt: new Contract(addresses.usdt, usdtAbi, provider),
 //     fgtToken: new Contract(addresses.fgtToken, fgtTokenAbi, provider),
 //     fgtrToken: new Contract(addresses.fgtrToken, fgtrTokenAbi, provider),
-//     freedomTokenController: new Contract(addresses.freedomTokenController, freedomTokenControllerAbi, provider),
+//     freedomTokenController: new Contract(
+//       addresses.freedomTokenController,
+//       freedomTokenControllerAbi,
+//       provider
+//     ),
 //   };
+
 //   return contractsInstance;
 // }
 
-// // export async function verifyContracts() {
-// //   const contracts = getContracts();
-
-// //   const [
-// //     levelManagerOwner,
-// //     levelManagerGuardian,
-// //     id1Wallet,
-// //     p4Owner,
-// //     p4LevelManager,
-// //     p12Owner,
-// //     p12LevelManager,
-// //     p39Owner,
-// //     p39LevelManager,
-// //     registrationOwner,
-// //     escrowOwner,
-// //   ] = await Promise.all([
-// //     contracts.levelManager.owner(),
-// //     contracts.levelManager.guardian(),
-// //     contracts.levelManager.id1Wallet(),
-// //     contracts.p4Orbit.owner(),
-// //     contracts.p4Orbit.levelManager(),
-// //     contracts.p12Orbit.owner(),
-// //     contracts.p12Orbit.levelManager(),
-// //     contracts.p39Orbit.owner(),
-// //     contracts.p39Orbit.levelManager(),
-// //     contracts.registration.owner(),
-// //     contracts.escrow.owner(),
-// //   ]);
-
-// //   return {
-// //     levelManager: {
-// //       address: addresses.levelManager,
-// //       owner: levelManagerOwner,
-// //       guardian: levelManagerGuardian,
-// //       id1Wallet,
-// //     },
-// //     p4Orbit: {
-// //       address: addresses.p4Orbit,
-// //       owner: p4Owner,
-// //       levelManager: p4LevelManager,
-// //     },
-// //     p12Orbit: {
-// //       address: addresses.p12Orbit,
-// //       owner: p12Owner,
-// //       levelManager: p12LevelManager,
-// //     },
-// //     p39Orbit: {
-// //       address: addresses.p39Orbit,
-// //       owner: p39Owner,
-// //       levelManager: p39LevelManager,
-// //     },
-// //     registration: {
-// //       address: addresses.registration,
-// //       owner: registrationOwner,
-// //     },
-// //     escrow: {
-// //       address: addresses.escrow,
-// //       owner: escrowOwner,
-// //     },
-// //   };
-// // }
+// async function safeOptionalOwner(contract) {
+//   try {
+//     if (typeof contract?.owner !== 'function') return 'N/A';
+//     return await safeRpcCall(() => contract.owner());
+//   } catch {
+//     return 'N/A';
+//   }
+// }
 
 // export async function verifyContracts() {
 //   const contracts = getContracts();
@@ -268,22 +250,21 @@ export async function verifyContracts() {
 //     fgtrTokenOwner,
 //     tokenControllerOwner,
 //   ] = await Promise.all([
-//     contracts.levelManager.owner(),
-//     contracts.levelManager.guardian(),
-//     contracts.levelManager.id1Wallet(),
-//     contracts.p4Orbit.owner(),
-//     contracts.p4Orbit.levelManager(),
-//     contracts.p12Orbit.owner(),
-//     contracts.p12Orbit.levelManager(),
-//     contracts.p39Orbit.owner(),
-//     contracts.p39Orbit.levelManager(),
-//     contracts.registration.owner(),
-//     contracts.escrow.owner(),
-//     contracts.usdt.owner().catch(() => 'N/A'),  // ← ADD THIS
-//     // Add these
-//     contracts.fgtToken.owner().catch(() => 'N/A'),
-//     contracts.fgtrToken.owner().catch(() => 'N/A'),
-//     contracts.freedomTokenController.owner().catch(() => 'N/A'),
+//     safeRpcCall(() => contracts.levelManager.owner()),
+//     safeRpcCall(() => contracts.levelManager.guardian()),
+//     safeRpcCall(() => contracts.levelManager.id1Wallet()),
+//     safeRpcCall(() => contracts.p4Orbit.owner()),
+//     safeRpcCall(() => contracts.p4Orbit.levelManager()),
+//     safeRpcCall(() => contracts.p12Orbit.owner()),
+//     safeRpcCall(() => contracts.p12Orbit.levelManager()),
+//     safeRpcCall(() => contracts.p39Orbit.owner()),
+//     safeRpcCall(() => contracts.p39Orbit.levelManager()),
+//     safeRpcCall(() => contracts.registration.owner()),
+//     safeRpcCall(() => contracts.escrow.owner()),
+//     safeOptionalOwner(contracts.usdt),
+//     safeOptionalOwner(contracts.fgtToken),
+//     safeOptionalOwner(contracts.fgtrToken),
+//     safeOptionalOwner(contracts.freedomTokenController),
 //   ]);
 
 //   return {
@@ -316,11 +297,10 @@ export async function verifyContracts() {
 //       address: addresses.escrow,
 //       owner: escrowOwner,
 //     },
-//      usdt: {           // ← ADD THIS
+//     usdt: {
 //       address: addresses.usdt,
 //       owner: usdtOwner,
 //     },
-//     // Add token contract verification results
 //     fgtToken: {
 //       address: addresses.fgtToken,
 //       owner: fgtTokenOwner,

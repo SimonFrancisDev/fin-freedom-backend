@@ -30,7 +30,7 @@ const orbitTypeToContractKey = {
   P39: 'p39Orbit',
 };
 
-const RESPONSE_CACHE_TTL_MS = 10_000;
+const RESPONSE_CACHE_TTL_MS = 10000;
 const inflightCache = new Map();
 const responseCache = new Map();
 
@@ -449,15 +449,23 @@ async function fetchLiveActivationData(orbitContract, address, level, position) 
     };
   }
 
-  const result = await safeRpcCall(() =>
-    orbitContract.getPositionActivationData(address, level, position)
-  );
+  try {
+    const result = await safeRpcCall(() =>
+      orbitContract.getPositionActivationData(address, level, position)
+    );
 
-  return {
-    activationId: Number(result?.activationId ?? result?.[0] ?? 0),
-    activationCycleNumber: Number(result?.cycleNumber ?? result?.[1] ?? 0),
-    isMirrorActivation: Boolean(result?.isMirror ?? result?.[2] ?? false),
-  };
+    return {
+      activationId: Number(result?.activationId ?? result?.[0] ?? 0),
+      activationCycleNumber: Number(result?.cycleNumber ?? result?.[1] ?? 0),
+      isMirrorActivation: Boolean(result?.isMirror ?? result?.[2] ?? false),
+    };
+  } catch {
+    return {
+      activationId: 0,
+      activationCycleNumber: 0,
+      isMirrorActivation: false,
+    };
+  }
 }
 
 async function fetchHistoricalActivationData(orbitContract, address, level, cycleNumber, position) {
@@ -469,20 +477,28 @@ async function fetchHistoricalActivationData(orbitContract, address, level, cycl
     };
   }
 
-  const result = await safeRpcCall(() =>
-    orbitContract.getHistoricalPositionActivationData(
-      address,
-      level,
-      cycleNumber,
-      position
-    )
-  );
+  try {
+    const result = await safeRpcCall(() =>
+      orbitContract.getHistoricalPositionActivationData(
+        address,
+        level,
+        cycleNumber,
+        position
+      )
+    );
 
-  return {
-    activationId: Number(result?.activationId ?? result?.[0] ?? 0),
-    activationCycleNumber: cycleNumber,
-    isMirrorActivation: Boolean(result?.isMirror ?? result?.[1] ?? false),
-  };
+    return {
+      activationId: Number(result?.activationId ?? result?.[0] ?? 0),
+      activationCycleNumber: cycleNumber,
+      isMirrorActivation: Boolean(result?.isMirror ?? result?.[1] ?? false),
+    };
+  } catch {
+    return {
+      activationId: 0,
+      activationCycleNumber: cycleNumber,
+      isMirrorActivation: false,
+    };
+  }
 }
 
 function shapeIndexedReceipts(receipts) {
@@ -561,7 +577,7 @@ async function buildLivePositionSnapshot(address, level, positionNumber, preload
   const { orbitType, orbitContract } = await getOrbitContext(level);
 
   const [position, activationData, ruleView] = await Promise.all([
-    safeRpcCall(() => orbitContract.getPosition(normalizedAddress, level, positionNumber)),
+    safeRpcCall(() => orbitContract.getPosition(normalizedAddress, level, positionNumber)).catch(() => null),
     fetchLiveActivationData(orbitContract, normalizedAddress, level, positionNumber),
     fetchLiveRuleView(orbitContract, normalizedAddress, level, positionNumber),
   ]);
@@ -704,11 +720,11 @@ export async function fetchOrbitLevels(address) {
 
     const levels = await mapWithConcurrency(
       Array.from({ length: 10 }, (_, index) => index + 1),
-      2,
+      1,
       async (level) => {
         const isActive = await safeRpcCall(() =>
           contracts.registration.isLevelActivated(normalizedAddress, level)
-        );
+        ).catch(() => false);
 
         return {
           level,
@@ -740,16 +756,16 @@ export async function fetchOrbitLevelSnapshot(address, level) {
 
     const [isLevelActive, userOrbit, lineCounts, lockedAmountRaw, indexedEventsByPosition] =
       await Promise.all([
-        safeRpcCall(() => contracts.registration.isLevelActivated(normalizedAddress, level)),
-        safeRpcCall(() => orbitContract.getUserOrbit(normalizedAddress, level)),
-        safeRpcCall(() => orbitContract.getLinePaymentCounts(normalizedAddress, level)),
-        getLockedForNextLevel(contracts, normalizedAddress, level),
+        safeRpcCall(() => contracts.registration.isLevelActivated(normalizedAddress, level)).catch(() => false),
+        safeRpcCall(() => orbitContract.getUserOrbit(normalizedAddress, level)).catch(() => null),
+        safeRpcCall(() => orbitContract.getLinePaymentCounts(normalizedAddress, level)).catch(() => null),
+        getLockedForNextLevel(contracts, normalizedAddress, level).catch(() => 0n),
         getIndexedOrbitEventsGrouped(normalizedAddress, level),
       ]);
 
     const positions = await mapWithConcurrency(
       Array.from({ length: positionsCount }, (_, idx) => idx + 1),
-      2,
+      1,
       async (positionNumber) => {
         const position = await safeRpcCall(() =>
           orbitContract.getPosition(normalizedAddress, level, positionNumber)
@@ -830,7 +846,7 @@ export async function fetchOrbitLevelSnapshot(address, level) {
       lockedForNextLevel: level < 10 ? formatUsdt(lockedAmountRaw) : '0.0',
       positions,
     };
-  });
+  }, 15000);
 }
 
 export async function fetchOrbitPositionDetails(address, level, position) {
@@ -857,7 +873,7 @@ export async function fetchOrbitPositionDetails(address, level, position) {
       orbitType,
       ...snapshot,
     };
-  });
+  }, 15000);
 }
 
 export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
@@ -873,7 +889,7 @@ export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
 
     const positions = await mapWithConcurrency(
       Array.from({ length: positionsCount }, (_, idx) => idx + 1),
-      2,
+      1,
       async (positionNumber) => {
         return buildHistoricalPositionSnapshot(
           normalizedAddress,
@@ -896,8 +912,11 @@ export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
       totalPositions: positionsCount,
       positions,
     };
-  }, 15_000);
+  }, 20000);
 }
+
+
+
 
 
 
@@ -911,6 +930,7 @@ export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
 
 // import { ethers } from 'ethers';
 // import { getContracts } from '../../blockchain/contracts.js';
+// import { safeRpcCall } from '../../blockchain/provider.js';
 // import IndexedReceipt from '../../models/IndexedReceipt.js';
 // import IndexedOrbitEvent from '../../models/IndexedOrbitEvent.js';
 
@@ -939,6 +959,69 @@ export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
 //   P12: 'p12Orbit',
 //   P39: 'p39Orbit',
 // };
+
+// const RESPONSE_CACHE_TTL_MS = 10_000;
+// const inflightCache = new Map();
+// const responseCache = new Map();
+
+// function cacheGet(key) {
+//   const hit = responseCache.get(key);
+//   if (!hit) return null;
+
+//   if (Date.now() > hit.expiresAt) {
+//     responseCache.delete(key);
+//     return null;
+//   }
+
+//   return hit.value;
+// }
+
+// function cacheSet(key, value, ttlMs = RESPONSE_CACHE_TTL_MS) {
+//   responseCache.set(key, {
+//     value,
+//     expiresAt: Date.now() + ttlMs,
+//   });
+// }
+
+// async function cached(key, fn, ttlMs = RESPONSE_CACHE_TTL_MS) {
+//   const existing = cacheGet(key);
+//   if (existing) return existing;
+
+//   if (inflightCache.has(key)) {
+//     return inflightCache.get(key);
+//   }
+
+//   const promise = (async () => {
+//     try {
+//       const result = await fn();
+//       cacheSet(key, result, ttlMs);
+//       return result;
+//     } finally {
+//       inflightCache.delete(key);
+//     }
+//   })();
+
+//   inflightCache.set(key, promise);
+//   return promise;
+// }
+
+// async function mapWithConcurrency(items, limit, mapper) {
+//   const results = new Array(items.length);
+//   let nextIndex = 0;
+
+//   async function worker() {
+//     while (true) {
+//       const current = nextIndex;
+//       nextIndex += 1;
+//       if (current >= items.length) break;
+//       results[current] = await mapper(items[current], current);
+//     }
+//   }
+
+//   const workers = Array.from({ length: Math.max(1, limit) }, () => worker());
+//   await Promise.all(workers);
+//   return results;
+// }
 
 // function normalizeAddress(address) {
 //   if (!ethers.isAddress(address)) {
@@ -1150,11 +1233,11 @@ export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
 //   if (level >= 10) return 0n;
 
 //   if (typeof contracts.escrow.getLockedAmount === 'function') {
-//     return await contracts.escrow.getLockedAmount(address, level, level + 1);
+//     return safeRpcCall(() => contracts.escrow.getLockedAmount(address, level, level + 1));
 //   }
 
 //   if (typeof contracts.escrow.lockedFunds === 'function') {
-//     return await contracts.escrow.lockedFunds(address, level, level + 1);
+//     return safeRpcCall(() => contracts.escrow.lockedFunds(address, level, level + 1));
 //   }
 
 //   return 0n;
@@ -1164,7 +1247,7 @@ export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
 //   for (const methodName of methodNames) {
 //     if (typeof contract?.[methodName] === 'function') {
 //       try {
-//         const result = await contract[methodName](...args);
+//         const result = await safeRpcCall(() => contract[methodName](...args));
 //         return { ok: true, methodName, result };
 //       } catch {
 //         // continue
@@ -1260,7 +1343,7 @@ export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
 // async function fetchIndexedReceiptsForActivation(activationId) {
 //   if (!activationId || Number(activationId) <= 0) return [];
 
-//   return await IndexedReceipt.find({
+//   return IndexedReceipt.find({
 //     activationId: String(activationId),
 //   })
 //     .sort({ blockNumber: 1, logIndex: 1 })
@@ -1296,7 +1379,9 @@ export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
 //     };
 //   }
 
-//   const result = await orbitContract.getPositionActivationData(address, level, position);
+//   const result = await safeRpcCall(() =>
+//     orbitContract.getPositionActivationData(address, level, position)
+//   );
 
 //   return {
 //     activationId: Number(result?.activationId ?? result?.[0] ?? 0),
@@ -1314,11 +1399,13 @@ export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
 //     };
 //   }
 
-//   const result = await orbitContract.getHistoricalPositionActivationData(
-//     address,
-//     level,
-//     cycleNumber,
-//     position
+//   const result = await safeRpcCall(() =>
+//     orbitContract.getHistoricalPositionActivationData(
+//       address,
+//       level,
+//       cycleNumber,
+//       position
+//     )
 //   );
 
 //   return {
@@ -1352,7 +1439,6 @@ export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
 //   }));
 // }
 
-
 // function findBestIndexedPositionFilledEvent(indexedEvents = []) {
 //   return indexedEvents.find((event) => event.eventName === 'PositionFilled') || null;
 // }
@@ -1369,7 +1455,7 @@ export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
 // }
 
 // async function fetchIndexedReceiptsForHistoricalPosition(orbitOwner, level, cycleNumber, positionNumber) {
-//   return await IndexedReceipt.find({
+//   return IndexedReceipt.find({
 //     orbitOwner: orbitOwner.toLowerCase(),
 //     level,
 //     sourceCycle: Number(cycleNumber),
@@ -1379,24 +1465,38 @@ export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
 //     .lean();
 // }
 
+// async function getIndexedOrbitEventsGrouped(orbitOwner, level) {
+//   const docs = await IndexedOrbitEvent.find({
+//     orbitOwner: orbitOwner.toLowerCase(),
+//     level,
+//   })
+//     .sort({ blockNumber: 1, logIndex: 1 })
+//     .lean();
 
-// async function buildLivePositionSnapshot(address, level, positionNumber) {
+//   const byPosition = new Map();
+
+//   for (const doc of docs) {
+//     const pos = Number(doc.position || 0);
+//     if (!byPosition.has(pos)) {
+//       byPosition.set(pos, []);
+//     }
+//     byPosition.get(pos).push(doc);
+//   }
+
+//   return byPosition;
+// }
+
+// async function buildLivePositionSnapshot(address, level, positionNumber, preloaded = {}) {
 //   const normalizedAddress = normalizeAddress(address);
 //   const { orbitType, orbitContract } = await getOrbitContext(level);
 
-//   const [position, activationData, ruleView, indexedEvents] = await Promise.all([
-//     orbitContract.getPosition(normalizedAddress, level, positionNumber),
+//   const [position, activationData, ruleView] = await Promise.all([
+//     safeRpcCall(() => orbitContract.getPosition(normalizedAddress, level, positionNumber)),
 //     fetchLiveActivationData(orbitContract, normalizedAddress, level, positionNumber),
 //     fetchLiveRuleView(orbitContract, normalizedAddress, level, positionNumber),
-//     IndexedOrbitEvent.find({
-//       orbitOwner: normalizedAddress.toLowerCase(),
-//       level,
-//       position: positionNumber,
-//     })
-//       .sort({ blockNumber: 1, logIndex: 1 })
-//       .lean(),
 //   ]);
 
+//   const indexedEvents = preloaded.indexedEventsByPosition?.get(positionNumber) || [];
 //   const occupant = position?.[0] && position[0] !== ethers.ZeroAddress ? position[0] : null;
 //   const indexedReceipts = await fetchIndexedReceiptsForActivation(activationData.activationId);
 //   const receiptSummary = summarizeReceiptsForViewer(indexedReceipts, normalizedAddress);
@@ -1424,76 +1524,11 @@ export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
 //   };
 // }
 
-// // async function buildHistoricalPositionSnapshot(address, level, cycleNumber, positionNumber) {
-// //   const normalizedAddress = normalizeAddress(address);
-// //   const { orbitType, orbitContract } = await getOrbitContext(level);
-
-// //   const historicalPositionCall = await tryCall(
-// //     orbitContract,
-// //     ['getHistoricalPosition', 'getCyclePosition', 'getStoredCyclePosition', 'getArchivedPosition'],
-// //     [normalizedAddress, level, cycleNumber, positionNumber]
-// //   );
-
-// //   if (!historicalPositionCall.ok) {
-// //     const error = new Error('Historical position getter not supported by this orbit contract');
-// //     error.status = 400;
-// //     throw error;
-// //   }
-
-// //   const position = historicalPositionCall.result;
-// //   const occupant = position?.[0] && position[0] !== ethers.ZeroAddress ? position[0] : null;
-
-// //   const [activationData, ruleView] = await Promise.all([
-// //     fetchHistoricalActivationData(orbitContract, normalizedAddress, level, cycleNumber, positionNumber),
-// //     fetchHistoricalRuleView(orbitContract, normalizedAddress, level, cycleNumber, positionNumber),
-// //   ]);
-
-// //   const indexedReceipts = await fetchIndexedReceiptsForActivation(activationData.activationId);
-// //   const indexedEvents = await IndexedOrbitEvent.find({
-// //     orbitOwner: normalizedAddress.toLowerCase(),
-// //     level,
-// //     position: positionNumber,
-// //   })
-// //     .sort({ blockNumber: 1, logIndex: 1 })
-// //     .lean();
-
-// //   const receiptSummary = summarizeReceiptsForViewer(indexedReceipts, normalizedAddress);
-
-// //   return {
-// //     number: positionNumber,
-// //     level,
-// //     cycleNumber,
-// //     orbitType,
-// //     line: getLineForPosition(orbitType, positionNumber),
-// //     parentPosition: getStructuralParentPosition(orbitType, positionNumber),
-// //     occupant,
-// //     amount: occupant ? formatUsdt(position?.[1]) : '0.0',
-// //     timestamp: Number(position?.[2] ?? 0),
-// //     activationId: activationData.activationId,
-// //     activationCycleNumber: activationData.activationCycleNumber,
-// //     isMirrorActivation: activationData.isMirrorActivation,
-// //     truthLabel: receiptSummary.truthLabel,
-// //     indexedEventCount: indexedEvents.length,
-// //     indexedReceiptCount: indexedReceipts.length,
-// //     receiptTotals: receiptSummary.totals,
-// //     viewerReceiptBreakdown: receiptSummary.viewerBreakdown,
-// //     indexedReceipts: shapeIndexedReceipts(indexedReceipts),
-// //     indexedEvents,
-// //     ruleView,
-// //   };
-// // }
-
-// async function buildHistoricalPositionSnapshot(address, level, cycleNumber, positionNumber) {
+// async function buildHistoricalPositionSnapshot(address, level, cycleNumber, positionNumber, preloaded = {}) {
 //   const normalizedAddress = normalizeAddress(address);
 //   const { orbitType, orbitContract } = await getOrbitContext(level);
 
-//   const indexedEvents = await IndexedOrbitEvent.find({
-//     orbitOwner: normalizedAddress.toLowerCase(),
-//     level,
-//     position: positionNumber,
-//   })
-//     .sort({ blockNumber: 1, logIndex: 1 })
-//     .lean();
+//   const indexedEvents = preloaded.indexedEventsByPosition?.get(positionNumber) || [];
 
 //   const indexedReceiptsForPosition = await fetchIndexedReceiptsForHistoricalPosition(
 //     normalizedAddress,
@@ -1530,7 +1565,6 @@ export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
 
 //   const bestIndexedPositionFilled = findBestIndexedPositionFilledEvent(indexedEvents);
 
-//   // Fallback 1: recover occupant/amount/timestamp from indexed PositionFilled event
 //   if (!occupant && bestIndexedPositionFilled) {
 //     occupant = bestIndexedPositionFilled.user || null;
 
@@ -1543,7 +1577,6 @@ export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
 //     }
 //   }
 
-//   // Fallback 2: recover activationId from indexed receipts
 //   if (!activationId && indexedReceiptsForPosition.length > 0) {
 //     activationId = findActivationIdFromIndexedReceipts(
 //       indexedReceiptsForPosition,
@@ -1594,171 +1627,204 @@ export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
 
 // export async function fetchOrbitLevels(address) {
 //   const normalizedAddress = normalizeAddress(address);
-//   const contracts = getContracts();
+//   const cacheKey = `orbit-levels:${normalizedAddress.toLowerCase()}`;
 
-//   const levels = await Promise.all(
-//     Array.from({ length: 10 }, async (_, index) => {
-//       const level = index + 1;
-//       const isActive = await contracts.registration.isLevelActivated(normalizedAddress, level);
-//       return {
-//         level,
-//         orbitType: levelToOrbitType[level],
-//         isActive: Boolean(isActive),
-//       };
-//     })
-//   );
+//   return cached(cacheKey, async () => {
+//     const contracts = getContracts();
 
-//   const activeLevels = levels.filter((item) => item.isActive).map((item) => item.level);
-//   const highestActiveLevel = activeLevels.length ? Math.max(...activeLevels) : 0;
+//     const levels = await mapWithConcurrency(
+//       Array.from({ length: 10 }, (_, index) => index + 1),
+//       2,
+//       async (level) => {
+//         const isActive = await safeRpcCall(() =>
+//           contracts.registration.isLevelActivated(normalizedAddress, level)
+//         );
 
-//   return {
-//     address: normalizedAddress,
-//     levels,
-//     highestActiveLevel,
-//   };
+//         return {
+//           level,
+//           orbitType: levelToOrbitType[level],
+//           isActive: Boolean(isActive),
+//         };
+//       }
+//     );
+
+//     const activeLevels = levels.filter((item) => item.isActive).map((item) => item.level);
+//     const highestActiveLevel = activeLevels.length ? Math.max(...activeLevels) : 0;
+
+//     return {
+//       address: normalizedAddress,
+//       levels,
+//       highestActiveLevel,
+//     };
+//   });
 // }
 
 // export async function fetchOrbitLevelSnapshot(address, level) {
 //   const normalizedAddress = normalizeAddress(address);
-//   const { contracts, orbitType, orbitContract, positionsCount } = await getOrbitContext(level);
+//   validateLevel(level);
 
-//   const [
-//     isLevelActive,
-//     userOrbit,
-//     lineCounts,
-//     lockedAmountRaw,
-//   ] = await Promise.all([
-//     contracts.registration.isLevelActivated(normalizedAddress, level),
-//     orbitContract.getUserOrbit(normalizedAddress, level),
-//     orbitContract.getLinePaymentCounts(normalizedAddress, level),
-//     getLockedForNextLevel(contracts, normalizedAddress, level),
-//   ]);
+//   const cacheKey = `orbit-level-snapshot:${normalizedAddress.toLowerCase()}:${level}`;
 
-//   const positions = await Promise.all(
-//     Array.from({ length: positionsCount }, async (_, idx) => {
-//       const positionNumber = idx + 1;
-//       const position = await orbitContract.getPosition(normalizedAddress, level, positionNumber).catch(() => null);
+//   return cached(cacheKey, async () => {
+//     const { contracts, orbitType, orbitContract, positionsCount } = await getOrbitContext(level);
 
-//       const occupant = position?.[0] && position[0] !== ethers.ZeroAddress ? position[0] : null;
-//       const amount = occupant ? formatUsdt(position?.[1]) : '0.0';
-//       const timestamp = position?.[2] ? Number(position[2]) : 0;
+//     const [isLevelActive, userOrbit, lineCounts, lockedAmountRaw, indexedEventsByPosition] =
+//       await Promise.all([
+//         safeRpcCall(() => contracts.registration.isLevelActivated(normalizedAddress, level)),
+//         safeRpcCall(() => orbitContract.getUserOrbit(normalizedAddress, level)),
+//         safeRpcCall(() => orbitContract.getLinePaymentCounts(normalizedAddress, level)),
+//         getLockedForNextLevel(contracts, normalizedAddress, level),
+//         getIndexedOrbitEventsGrouped(normalizedAddress, level),
+//       ]);
 
-//       let activationId = 0;
-//       let activationCycleNumber = 0;
-//       let isMirrorActivation = false;
+//     const positions = await mapWithConcurrency(
+//       Array.from({ length: positionsCount }, (_, idx) => idx + 1),
+//       2,
+//       async (positionNumber) => {
+//         const position = await safeRpcCall(() =>
+//           orbitContract.getPosition(normalizedAddress, level, positionNumber)
+//         ).catch(() => null);
 
-//       if (typeof orbitContract.getPositionActivationData === 'function') {
-//         try {
-//           const activationData = await orbitContract.getPositionActivationData(
-//             normalizedAddress,
-//             level,
-//             positionNumber
-//           );
+//         const occupant = position?.[0] && position[0] !== ethers.ZeroAddress ? position[0] : null;
+//         const amount = occupant ? formatUsdt(position?.[1]) : '0.0';
+//         const timestamp = position?.[2] ? Number(position[2]) : 0;
 
-//           activationId = Number(activationData?.[0] ?? activationData?.activationId ?? 0);
-//           activationCycleNumber = Number(activationData?.[1] ?? activationData?.cycleNumber ?? 0);
-//           isMirrorActivation = Boolean(activationData?.[2] ?? activationData?.isMirror ?? false);
-//         } catch {
-//           // keep defaults
+//         let activationId = 0;
+//         let activationCycleNumber = 0;
+//         let isMirrorActivation = false;
+
+//         if (typeof orbitContract.getPositionActivationData === 'function') {
+//           try {
+//             const activationData = await safeRpcCall(() =>
+//               orbitContract.getPositionActivationData(
+//                 normalizedAddress,
+//                 level,
+//                 positionNumber
+//               )
+//             );
+
+//             activationId = Number(activationData?.[0] ?? activationData?.activationId ?? 0);
+//             activationCycleNumber = Number(activationData?.[1] ?? activationData?.cycleNumber ?? 0);
+//             isMirrorActivation = Boolean(activationData?.[2] ?? activationData?.isMirror ?? false);
+//           } catch {
+//             // keep defaults
+//           }
 //         }
+
+//         const indexedReceipts = activationId > 0
+//           ? await fetchIndexedReceiptsForActivation(activationId)
+//           : [];
+
+//         const receiptSummary = summarizeReceiptsForViewer(indexedReceipts, normalizedAddress);
+//         const indexedEvents = indexedEventsByPosition.get(positionNumber) || [];
+
+//         return {
+//           number: positionNumber,
+//           line: getLineForPosition(orbitType, positionNumber),
+//           parentPosition: getStructuralParentPosition(orbitType, positionNumber),
+//           occupant,
+//           amount,
+//           timestamp,
+//           activationId,
+//           activationCycleNumber,
+//           isMirrorActivation,
+//           truthLabel: receiptSummary.truthLabel,
+//           indexedEventCount: indexedEvents.length,
+//           indexedReceiptCount: indexedReceipts.length,
+//           receiptTotals: receiptSummary.totals,
+//           viewerReceiptBreakdown: receiptSummary.viewerBreakdown,
+//         };
 //       }
+//     );
 
-//       const indexedReceipts = activationId > 0
-//         ? await fetchIndexedReceiptsForActivation(activationId)
-//         : [];
-
-//       const receiptSummary = summarizeReceiptsForViewer(indexedReceipts, normalizedAddress);
-//       const indexedEventCount = await IndexedOrbitEvent.countDocuments({
-//         orbitOwner: normalizedAddress.toLowerCase(),
-//         level,
-//         position: positionNumber,
-//       });
-
-//       return {
-//         number: positionNumber,
-//         line: getLineForPosition(orbitType, positionNumber),
-//         parentPosition: getStructuralParentPosition(orbitType, positionNumber),
-//         occupant,
-//         amount,
-//         timestamp,
-//         activationId,
-//         activationCycleNumber,
-//         isMirrorActivation,
-//         truthLabel: receiptSummary.truthLabel,
-//         indexedEventCount,
-//         indexedReceiptCount: indexedReceipts.length,
-//         receiptTotals: receiptSummary.totals,
-//         viewerReceiptBreakdown: receiptSummary.viewerBreakdown,
-//       };
-//     })
-//   );
-
-//   return {
-//     address: normalizedAddress,
-//     level,
-//     orbitType,
-//     isLevelActive: Boolean(isLevelActive),
-//     orbitSummary: {
-//       currentPosition: Number(userOrbit?.[0] ?? 0),
-//       escrowBalance: formatUsdt(userOrbit?.[1]),
-//       autoUpgradeCompleted: Boolean(userOrbit?.[2] ?? false),
-//       positionsInLine1: Number(userOrbit?.[3] ?? 0),
-//       positionsInLine2: Number(userOrbit?.[4] ?? 0),
-//       positionsInLine3: Number(userOrbit?.[5] ?? 0),
-//       totalCycles: Number(userOrbit?.[6] ?? 0),
-//       totalEarned: formatUsdt(userOrbit?.[7]),
-//     },
-//     linePaymentCounts: {
-//       line1: Number(lineCounts?.[0] ?? 0),
-//       line2: Number(lineCounts?.[1] ?? 0),
-//       line3: Number(lineCounts?.[2] ?? 0),
-//     },
-//     lockedForNextLevel: level < 10 ? formatUsdt(lockedAmountRaw) : '0.0',
-//     positions,
-//   };
+//     return {
+//       address: normalizedAddress,
+//       level,
+//       orbitType,
+//       isLevelActive: Boolean(isLevelActive),
+//       orbitSummary: {
+//         currentPosition: Number(userOrbit?.[0] ?? 0),
+//         escrowBalance: formatUsdt(userOrbit?.[1]),
+//         autoUpgradeCompleted: Boolean(userOrbit?.[2] ?? false),
+//         positionsInLine1: Number(userOrbit?.[3] ?? 0),
+//         positionsInLine2: Number(userOrbit?.[4] ?? 0),
+//         positionsInLine3: Number(userOrbit?.[5] ?? 0),
+//         totalCycles: Number(userOrbit?.[6] ?? 0),
+//         totalEarned: formatUsdt(userOrbit?.[7]),
+//       },
+//       linePaymentCounts: {
+//         line1: Number(lineCounts?.[0] ?? 0),
+//         line2: Number(lineCounts?.[1] ?? 0),
+//         line3: Number(lineCounts?.[2] ?? 0),
+//       },
+//       lockedForNextLevel: level < 10 ? formatUsdt(lockedAmountRaw) : '0.0',
+//       positions,
+//     };
+//   });
 // }
 
 // export async function fetchOrbitPositionDetails(address, level, position) {
 //   const { orbitType, positionsCount } = await getOrbitContext(level);
 //   validatePosition(position, positionsCount);
 
-//   const snapshot = await buildLivePositionSnapshot(address, level, position);
+//   const normalizedAddress = normalizeAddress(address);
+//   const cacheKey = `orbit-position-details:${normalizedAddress.toLowerCase()}:${level}:${position}`;
 
-//   return {
-//     address: normalizeAddress(address),
-//     level,
-//     position,
-//     orbitType,
-//     ...snapshot,
-//   };
+//   return cached(cacheKey, async () => {
+//     const indexedEventsByPosition = await getIndexedOrbitEventsGrouped(normalizedAddress, level);
+
+//     const snapshot = await buildLivePositionSnapshot(
+//       normalizedAddress,
+//       level,
+//       position,
+//       { indexedEventsByPosition }
+//     );
+
+//     return {
+//       address: normalizedAddress,
+//       level,
+//       position,
+//       orbitType,
+//       ...snapshot,
+//     };
+//   });
 // }
 
 // export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
 //   const normalizedAddress = normalizeAddress(address);
+//   validateLevel(level);
 //   validateCycleNumber(cycleNumber);
 
-//   const { orbitType, positionsCount } = await getOrbitContext(level);
+//   const cacheKey = `orbit-cycle-snapshot:${normalizedAddress.toLowerCase()}:${level}:${cycleNumber}`;
 
-//   const positions = await Promise.all(
-//     Array.from({ length: positionsCount }, async (_, idx) => {
-//       return await buildHistoricalPositionSnapshot(
-//         normalizedAddress,
-//         level,
-//         cycleNumber,
-//         idx + 1
-//       );
-//     })
-//   );
+//   return cached(cacheKey, async () => {
+//     const { orbitType, positionsCount } = await getOrbitContext(level);
+//     const indexedEventsByPosition = await getIndexedOrbitEventsGrouped(normalizedAddress, level);
 
-//   const filledPositions = positions.filter((item) => !!item.occupant).length;
+//     const positions = await mapWithConcurrency(
+//       Array.from({ length: positionsCount }, (_, idx) => idx + 1),
+//       2,
+//       async (positionNumber) => {
+//         return buildHistoricalPositionSnapshot(
+//           normalizedAddress,
+//           level,
+//           cycleNumber,
+//           positionNumber,
+//           { indexedEventsByPosition }
+//         );
+//       }
+//     );
 
-//   return {
-//     address: normalizedAddress,
-//     level,
-//     cycleNumber,
-//     orbitType,
-//     filledPositions,
-//     totalPositions: positionsCount,
-//     positions,
-//   };
+//     const filledPositions = positions.filter((item) => !!item.occupant).length;
+
+//     return {
+//       address: normalizedAddress,
+//       level,
+//       cycleNumber,
+//       orbitType,
+//       filledPositions,
+//       totalPositions: positionsCount,
+//       positions,
+//     };
+//   }, 15_000);
 // }
