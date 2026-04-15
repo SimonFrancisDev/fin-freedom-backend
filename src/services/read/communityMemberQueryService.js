@@ -3,6 +3,7 @@ import { getContracts } from '../../blockchain/contracts.js';
 import { safeRpcCall } from '../../blockchain/provider.js';
 import IndexedReceipt from '../../models/IndexedReceipt.js';
 import IndexedRegistrationEvent from '../../models/IndexedRegistrationEvent.js';
+import IndexedOrbitEvent from '../../models/IndexedOrbitEvent.js'
 
 const CACHE_TTL_MS = 15000;
 const cache = new Map();
@@ -351,6 +352,78 @@ export async function fetchCommunityMemberDownlineStats(address) {
       total,
     };
   });
+}
+
+
+
+export async function fetchCommunityMemberOrbitNetwork(address) {
+  const normalizedAddress = normalizeAddress(address)
+  const normalizedLower = lower(normalizedAddress)
+  const cacheKey = `community-member:orbit-network:${normalizedLower}`
+
+  return cached(cacheKey, async () => {
+    const rows = await IndexedOrbitEvent.find({
+      orbitOwner: normalizedLower,
+      eventName: 'PositionFilled',
+    })
+      .select('orbitType level cycleNumber user position timestamp')
+      .sort({ level: 1, cycleNumber: 1, position: 1, timestamp: 1 })
+      .lean()
+
+    const levels = {}
+
+    for (const row of rows) {
+      const level = Number(row.level || 0)
+      const cycleNumber = Number(row.cycleNumber || 1)
+      const user = lower(row.user || '')
+
+      if (!level || !user) continue
+
+      const levelKey = `level${level}`
+
+      if (!levels[levelKey]) {
+        levels[levelKey] = {
+          cycles: {},
+          totalMembersAcrossCycles: 0,
+        }
+      }
+
+      if (!levels[levelKey].cycles[cycleNumber]) {
+        levels[levelKey].cycles[cycleNumber] = {
+          cycle: cycleNumber,
+          members: new Set(),
+        }
+      }
+
+      // Count user once per cycle
+      levels[levelKey].cycles[cycleNumber].members.add(user)
+    }
+
+    const formattedLevels = {}
+
+    for (const [levelKey, levelData] of Object.entries(levels)) {
+      const cycleList = Object.values(levelData.cycles)
+        .map((cycleEntry) => ({
+          cycle: cycleEntry.cycle,
+          members: cycleEntry.members.size,
+          memberAddresses: Array.from(cycleEntry.members),
+        }))
+        .sort((a, b) => a.cycle - b.cycle)
+
+      formattedLevels[levelKey] = {
+        cycles: cycleList,
+        totalMembersAcrossCycles: cycleList.reduce((sum, item) => sum + item.members, 0),
+        latestCycle: cycleList.length ? cycleList[cycleList.length - 1].cycle : 0,
+        latestCycleMembers: cycleList.length ? cycleList[cycleList.length - 1].members : 0,
+      }
+    }
+
+    return {
+      address: normalizedAddress,
+      networkType: 'orbit-cycle-members',
+      levels: formattedLevels,
+    }
+  })
 }
 
 

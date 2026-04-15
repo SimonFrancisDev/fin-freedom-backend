@@ -2,6 +2,7 @@ import {
   fetchCommunityMemberSummary,
   fetchCommunityMemberReferralStats,
   fetchCommunityMemberDownlineStats,
+  fetchCommunityMemberOrbitNetwork,
 } from '../services/read/communityMemberQueryService.js';
 
 function setApiCacheHeaders(res, maxAgeSeconds = 15) {
@@ -37,6 +38,18 @@ export async function getCommunityMemberDownlineStats(req, res, next) {
     next(error);
   }
 }
+
+
+export  async function getCommunityMemberOrbitNetwork(req, res, next) {
+  try {
+    const data = await fetchCommunityMemberOrbitNetwork(req.params.address);
+    setApiCacheHeaders(res, 15);
+    res.status(200).json({ ok: true, data })
+  } catch (error) {
+    next(error)
+  }
+}
+
 
 
 

@@ -11,6 +11,7 @@ import {
   getCommunityMemberSummary,
   getCommunityMemberReferralStats,
   getCommunityMemberDownlineStats,
+  getCommunityMemberOrbitNetwork,
 } from '../controllers/communityMemberController.js';
 
 import {
@@ -32,6 +33,7 @@ router.get('/resources', getCommunityResources);
 router.get('/member/:address/summary', getCommunityMemberSummary);
 router.get('/member/:address/referrals', getCommunityMemberReferralStats);
 router.get('/member/:address/downline', getCommunityMemberDownlineStats);
+router.get('/member/:address/orbit-network', getCommunityMemberOrbitNetwork);
 
 router.get('/leaderboard', getCommunityLeaderboard);
 router.get('/growth', getCommunityGrowth);
