@@ -4,7 +4,11 @@ import { safeRpcCall } from '../../blockchain/provider.js';
 import IndexedReceipt from '../../models/IndexedReceipt.js';
 import IndexedOrbitEvent from '../../models/IndexedOrbitEvent.js';
 import OrbitLevelSnapshot from '../../models/OrbitLevelSnapshot.js';
+import OrbitPositionSnapshot from '../../models/OrbitPositionSnapshot.js';
+import OrbitCycleSnapshot from '../../models/OrbitCycleSnapshot.js';
 import { buildOrbitLevelSnapshot } from '../snapshots/orbitLevelSnapshotBuilder.js';
+import { buildOrbitPositionSnapshot } from '../snapshots/orbitPositionSnapshotBuilder.js';
+import { buildOrbitCycleSnapshot } from '../snapshots/orbitCycleSnapshotBuilder.js';
 
 const RECEIPT_TYPES = {
   FOUNDER_PATH: 1,
@@ -984,6 +988,34 @@ export async function fetchOrbitLevelSnapshot(address, level) {
   };
 }
 
+// export async function fetchOrbitPositionDetails(address, level, position) {
+//   const { orbitType, positionsCount } = await getOrbitContext(level);
+//   validatePosition(position, positionsCount);
+
+//   const normalizedAddress = normalizeAddress(address);
+//   const cacheKey = `orbit-position-details:${normalizedAddress.toLowerCase()}:${level}:${position}`;
+
+//   return cached(cacheKey, async () => {
+//     const indexedEventsByPosition = await getIndexedOrbitEventsGrouped(normalizedAddress, level);
+
+//     const snapshot = await buildLivePositionSnapshot(
+//       normalizedAddress,
+//       level,
+//       position,
+//       { indexedEventsByPosition }
+//     );
+
+//     return {
+//       address: normalizedAddress,
+//       level,
+//       position,
+//       orbitType,
+//       ...snapshot,
+//     };
+//   }, 15000);
+// }
+
+
 export async function fetchOrbitPositionDetails(address, level, position) {
   const { orbitType, positionsCount } = await getOrbitContext(level);
   validatePosition(position, positionsCount);
@@ -992,24 +1024,81 @@ export async function fetchOrbitPositionDetails(address, level, position) {
   const cacheKey = `orbit-position-details:${normalizedAddress.toLowerCase()}:${level}:${position}`;
 
   return cached(cacheKey, async () => {
-    const indexedEventsByPosition = await getIndexedOrbitEventsGrouped(normalizedAddress, level);
-
-    const snapshot = await buildLivePositionSnapshot(
-      normalizedAddress,
+    let snapshot = await OrbitPositionSnapshot.findOne({
+      address: normalizedAddress,
       level,
       position,
-      { indexedEventsByPosition }
-    );
+    }).lean();
+
+    if (!snapshot) {
+      snapshot = await buildOrbitPositionSnapshot(normalizedAddress, level, position);
+    }
 
     return {
       address: normalizedAddress,
       level,
       position,
       orbitType,
-      ...snapshot,
+      number: snapshot.position,
+      line: snapshot.line,
+      parentPosition: snapshot.parentPosition,
+      occupant: snapshot.occupant,
+      amount: snapshot.amount,
+      timestamp: snapshot.timestamp,
+      activationId: snapshot.activationId,
+      activationCycleNumber: snapshot.activationCycleNumber,
+      isMirrorActivation: snapshot.isMirrorActivation,
+      truthLabel: snapshot.truthLabel,
+      indexedEventCount: snapshot.indexedEventCount,
+      indexedReceiptCount: snapshot.indexedReceiptCount,
+      receiptTotals: snapshot.receiptTotals,
+      viewerReceiptBreakdown: snapshot.viewerReceiptBreakdown,
+      indexedReceipts: snapshot.indexedReceipts || [],
+      indexedEvents: snapshot.indexedEvents || [],
+      ruleView: snapshot.ruleView || null,
     };
   }, 15000);
 }
+
+// export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
+//   const normalizedAddress = normalizeAddress(address);
+//   validateLevel(level);
+//   validateCycleNumber(cycleNumber);
+
+//   const cacheKey = `orbit-cycle-snapshot:${normalizedAddress.toLowerCase()}:${level}:${cycleNumber}`;
+
+//   return cached(cacheKey, async () => {
+//     const { orbitType, positionsCount } = await getOrbitContext(level);
+//     const indexedEventsByPosition = await getIndexedOrbitEventsGrouped(normalizedAddress, level);
+
+//     const positions = await mapWithConcurrency(
+//       Array.from({ length: positionsCount }, (_, idx) => idx + 1),
+//       1,
+//       async (positionNumber) => {
+//         return buildHistoricalPositionSnapshot(
+//           normalizedAddress,
+//           level,
+//           cycleNumber,
+//           positionNumber,
+//           { indexedEventsByPosition }
+//         );
+//       }
+//     );
+
+//     const filledPositions = positions.filter((item) => !!item.occupant).length;
+
+//     return {
+//       address: normalizedAddress,
+//       level,
+//       cycleNumber,
+//       orbitType,
+//       filledPositions,
+//       totalPositions: positionsCount,
+//       positions,
+//     };
+//   }, 20000);
+// }
+
 
 export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
   const normalizedAddress = normalizeAddress(address);
@@ -1019,33 +1108,24 @@ export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
   const cacheKey = `orbit-cycle-snapshot:${normalizedAddress.toLowerCase()}:${level}:${cycleNumber}`;
 
   return cached(cacheKey, async () => {
-    const { orbitType, positionsCount } = await getOrbitContext(level);
-    const indexedEventsByPosition = await getIndexedOrbitEventsGrouped(normalizedAddress, level);
+    let snapshot = await OrbitCycleSnapshot.findOne({
+      address: normalizedAddress,
+      level,
+      cycleNumber,
+    }).lean();
 
-    const positions = await mapWithConcurrency(
-      Array.from({ length: positionsCount }, (_, idx) => idx + 1),
-      1,
-      async (positionNumber) => {
-        return buildHistoricalPositionSnapshot(
-          normalizedAddress,
-          level,
-          cycleNumber,
-          positionNumber,
-          { indexedEventsByPosition }
-        );
-      }
-    );
-
-    const filledPositions = positions.filter((item) => !!item.occupant).length;
+    if (!snapshot) {
+      snapshot = await buildOrbitCycleSnapshot(normalizedAddress, level, cycleNumber);
+    }
 
     return {
       address: normalizedAddress,
       level,
       cycleNumber,
-      orbitType,
-      filledPositions,
-      totalPositions: positionsCount,
-      positions,
+      orbitType: snapshot.orbitType,
+      filledPositions: snapshot.filledPositions,
+      totalPositions: snapshot.totalPositions,
+      positions: snapshot.positions || [],
     };
   }, 20000);
 }
