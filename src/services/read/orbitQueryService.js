@@ -9,6 +9,8 @@ import OrbitCycleSnapshot from '../../models/OrbitCycleSnapshot.js';
 import { buildOrbitLevelSnapshot } from '../snapshots/orbitLevelSnapshotBuilder.js';
 import { buildOrbitPositionSnapshot } from '../snapshots/orbitPositionSnapshotBuilder.js';
 import { buildOrbitCycleSnapshot } from '../snapshots/orbitCycleSnapshotBuilder.js';
+import { enrichOrbitLevelSnapshot } from '../snapshots/orbitLevelSnapshotEnricher.js';
+
 
 const RECEIPT_TYPES = {
   FOUNDER_PATH: 1,
@@ -79,6 +81,68 @@ async function cached(key, fn, ttlMs = RESPONSE_CACHE_TTL_MS) {
 
   inflightCache.set(key, promise);
   return promise;
+}
+
+
+const LEVEL_SNAPSHOT_TTL_MS = 15000;
+const POSITION_SNAPSHOT_TTL_MS = 15000;
+const CYCLE_SNAPSHOT_TTL_MS = 30000;
+
+function isSnapshotStale(snapshot, ttlMs) {
+  if (!snapshot) return true;
+
+  const builtAt =
+    snapshot?.metadata?.enrichedAt ||
+    snapshot?.metadata?.builtAt ||
+    snapshot?.updatedAt ||
+    null;
+
+  if (!builtAt) return true;
+
+  const builtMs = new Date(builtAt).getTime();
+  if (!Number.isFinite(builtMs)) return true;
+
+  return Date.now() - builtMs > ttlMs;
+}
+
+async function rebuildAndEnrichLevelSnapshot(address, level) {
+  await buildOrbitLevelSnapshot(address, level);
+  await enrichOrbitLevelSnapshot(address, level);
+
+  return OrbitLevelSnapshot.findOne({
+    address,
+    level,
+  }).lean();
+}
+
+async function warmCycleSnapshots(address, level, totalCycles) {
+  const cycleCount = Number(totalCycles || 0);
+  if (cycleCount <= 0) return;
+
+  const maxWarmCycles = Math.min(cycleCount, 12);
+
+  for (let cycleNumber = 1; cycleNumber <= maxWarmCycles; cycleNumber += 1) {
+    const existing = await OrbitCycleSnapshot.findOne({
+      address,
+      level,
+      cycleNumber,
+    })
+      .select({ updatedAt: 1, metadata: 1 })
+      .lean();
+
+    if (!isSnapshotStale(existing, CYCLE_SNAPSHOT_TTL_MS)) {
+      continue;
+    }
+
+    try {
+      await buildOrbitCycleSnapshot(address, level, cycleNumber);
+    } catch (error) {
+      console.error(
+        `Failed warming cycle snapshot for ${address} level ${level} cycle ${cycleNumber}:`,
+        error
+      );
+    }
+  }
 }
 
 async function mapWithConcurrency(items, limit, mapper) {
@@ -755,202 +819,36 @@ export async function fetchOrbitLevels(address) {
 //   const normalizedAddress = normalizeAddress(address);
 //   validateLevel(level);
 
-//   const cacheKey = `orbit-level-snapshot:${normalizedAddress.toLowerCase()}:${level}`;
-
-//   return cached(cacheKey, async () => {
-//     const { contracts, orbitType, orbitContract, positionsCount } = await getOrbitContext(level);
-
-//     const [isLevelActive, userOrbit, lineCounts, lockedAmountRaw, indexedEventsByPosition] =
-//       await Promise.all([
-//         safeRpcCall(() => contracts.registration.isLevelActivated(normalizedAddress, level)).catch(() => false),
-//         safeRpcCall(() => orbitContract.getUserOrbit(normalizedAddress, level)).catch(() => null),
-//         safeRpcCall(() => orbitContract.getLinePaymentCounts(normalizedAddress, level)).catch(() => null),
-//         getLockedForNextLevel(contracts, normalizedAddress, level).catch(() => 0n),
-//         getIndexedOrbitEventsGrouped(normalizedAddress, level),
-//       ]);
-
-//     const positions = await mapWithConcurrency(
-//       Array.from({ length: positionsCount }, (_, idx) => idx + 1),
-//       1,
-//       async (positionNumber) => {
-//         const position = await safeRpcCall(() =>
-//           orbitContract.getPosition(normalizedAddress, level, positionNumber)
-//         ).catch(() => null);
-
-//         const occupant = position?.[0] && position[0] !== ethers.ZeroAddress ? position[0] : null;
-//         const amount = occupant ? formatUsdt(position?.[1]) : '0.0';
-//         const timestamp = position?.[2] ? Number(position[2]) : 0;
-
-//         let activationId = 0;
-//         let activationCycleNumber = 0;
-//         let isMirrorActivation = false;
-
-//         if (typeof orbitContract.getPositionActivationData === 'function') {
-//           try {
-//             const activationData = await safeRpcCall(() =>
-//               orbitContract.getPositionActivationData(
-//                 normalizedAddress,
-//                 level,
-//                 positionNumber
-//               )
-//             );
-
-//             activationId = Number(activationData?.[0] ?? activationData?.activationId ?? 0);
-//             activationCycleNumber = Number(activationData?.[1] ?? activationData?.cycleNumber ?? 0);
-//             isMirrorActivation = Boolean(activationData?.[2] ?? activationData?.isMirror ?? false);
-//           } catch {
-//             // keep defaults
-//           }
-//         }
-
-//         const indexedReceipts = activationId > 0
-//           ? await fetchIndexedReceiptsForActivation(activationId)
-//           : [];
-
-//         const receiptSummary = summarizeReceiptsForViewer(indexedReceipts, normalizedAddress);
-//         const indexedEvents = indexedEventsByPosition.get(positionNumber) || [];
-
-//         return {
-//           number: positionNumber,
-//           line: getLineForPosition(orbitType, positionNumber),
-//           parentPosition: getStructuralParentPosition(orbitType, positionNumber),
-//           occupant,
-//           amount,
-//           timestamp,
-//           activationId,
-//           activationCycleNumber,
-//           isMirrorActivation,
-//           truthLabel: receiptSummary.truthLabel,
-//           indexedEventCount: indexedEvents.length,
-//           indexedReceiptCount: indexedReceipts.length,
-//           receiptTotals: receiptSummary.totals,
-//           viewerReceiptBreakdown: receiptSummary.viewerBreakdown,
-//         };
-//       }
-//     );
-
-//     return {
-//       address: normalizedAddress,
-//       level,
-//       orbitType,
-//       isLevelActive: Boolean(isLevelActive),
-//       orbitSummary: {
-//         currentPosition: Number(userOrbit?.[0] ?? 0),
-//         escrowBalance: formatUsdt(userOrbit?.[1]),
-//         autoUpgradeCompleted: Boolean(userOrbit?.[2] ?? false),
-//         positionsInLine1: Number(userOrbit?.[3] ?? 0),
-//         positionsInLine2: Number(userOrbit?.[4] ?? 0),
-//         positionsInLine3: Number(userOrbit?.[5] ?? 0),
-//         totalCycles: Number(userOrbit?.[6] ?? 0),
-//         totalEarned: formatUsdt(userOrbit?.[7]),
-//       },
-//       linePaymentCounts: {
-//         line1: Number(lineCounts?.[0] ?? 0),
-//         line2: Number(lineCounts?.[1] ?? 0),
-//         line3: Number(lineCounts?.[2] ?? 0),
-//       },
-//       lockedForNextLevel: level < 10 ? formatUsdt(lockedAmountRaw) : '0.0',
-//       positions,
-//     };
-//   }, 15000);
-// }
-
-// export async function fetchOrbitLevelSnapshot(address, level) {
-//   const normalizedAddress = normalizeAddress(address);
-//   validateLevel(level);
-
 //   const orbitType = levelToOrbitType[level];
 
-//   // =========================
-//   // STEP 1: Try snapshot first
-//   // =========================
 //   let snapshot = await OrbitLevelSnapshot.findOne({
 //     address: normalizedAddress,
 //     level,
 //   }).lean();
 
-//   // =========================
-//   // STEP 2: Build if missing
-//   // =========================
-//   if (!snapshot || !snapshot.metadata?.completeness?.positionsReady) {
-//     snapshot = await buildOrbitLevelSnapshot(normalizedAddress, level);
+//   if (!snapshot) {
+//     await buildOrbitLevelSnapshot(normalizedAddress, level);
+
+//     snapshot = await OrbitLevelSnapshot.findOne({
+//       address: normalizedAddress,
+//       level,
+//     }).lean();
 //   }
 
-//   // =========================
-//   // STEP 3: Fetch summary (LIGHT RPC ONLY)
-//   // =========================
-//   const {
-//     orbitContract,
-//     registration,
-//     escrow,
-//   } = await getContracts();
-
-//   const isLevelActive = await safeRpcCall(() =>
-//     registration.isLevelActivated(normalizedAddress, level)
-//   );
-
-//   let orbitSummaryRaw = null;
-//   let lineCountsRaw = null;
-//   let lockedRaw = null;
-
-//   try {
-//     orbitSummaryRaw = await safeRpcCall(() =>
-//       orbitContract.getUserOrbit(normalizedAddress, level)
-//     );
-//   } catch {}
-
-//   try {
-//     lineCountsRaw = await safeRpcCall(() =>
-//       orbitContract.getLinePaymentCounts(normalizedAddress, level)
-//     );
-//   } catch {}
-
-//   try {
-//     lockedRaw = await safeRpcCall(() =>
-//       escrow.lockedFunds(normalizedAddress, level, level + 1)
-//     );
-//   } catch {}
-
-//   // =========================
-//   // STEP 4: Format summary
-//   // =========================
-//   const orbitSummary = {
-//     currentPosition: Number(orbitSummaryRaw?.currentPosition || 0),
-//     escrowBalance: formatUsdt(orbitSummaryRaw?.escrowBalance || '0'),
-//     autoUpgradeCompleted: Boolean(orbitSummaryRaw?.autoUpgradeCompleted || false),
-//     positionsInLine1: Number(orbitSummaryRaw?.positionsInLine1 || 0),
-//     positionsInLine2: Number(orbitSummaryRaw?.positionsInLine2 || 0),
-//     positionsInLine3: Number(orbitSummaryRaw?.positionsInLine3 || 0),
-//     totalCycles: Number(orbitSummaryRaw?.totalCycles || 0),
-//     totalEarned: formatUsdt(orbitSummaryRaw?.totalEarned || '0'),
-//   };
-
-//   const linePaymentCounts = {
-//     line1: Number(lineCountsRaw?.[0] || 0),
-//     line2: Number(lineCountsRaw?.[1] || 0),
-//     line3: Number(lineCountsRaw?.[2] || 0),
-//   };
-
-//   const lockedForNextLevel = formatUsdt(lockedRaw || '0');
-
-//   // =========================
-//   // STEP 5: FINAL RESPONSE
-//   // =========================
 //   return {
 //     address: normalizedAddress,
 //     level,
 //     orbitType,
 
-//     isLevelActive,
+//     isLevelActive: snapshot.isLevelActive || false,
 
-//     orbitSummary,
-//     linePaymentCounts,
-//     lockedForNextLevel,
+//     orbitSummary: snapshot.orbitSummary || {},
+//     linePaymentCounts: snapshot.linePaymentCounts || {},
+//     lockedForNextLevel: snapshot.lockedForNextLevel || '0',
 
 //     positions: snapshot.positions || [],
 //   };
 // }
-
 
 
 export async function fetchOrbitLevelSnapshot(address, level) {
@@ -958,35 +856,50 @@ export async function fetchOrbitLevelSnapshot(address, level) {
   validateLevel(level);
 
   const orbitType = levelToOrbitType[level];
+  const cacheKey = `orbit-level-snapshot:${normalizedAddress}:${level}`;
 
-  let snapshot = await OrbitLevelSnapshot.findOne({
-    address: normalizedAddress,
-    level,
-  }).lean();
-
-  if (!snapshot) {
-    await buildOrbitLevelSnapshot(normalizedAddress, level);
-
-    snapshot = await OrbitLevelSnapshot.findOne({
+  return cached(cacheKey, async () => {
+    let snapshot = await OrbitLevelSnapshot.findOne({
       address: normalizedAddress,
       level,
     }).lean();
-  }
 
-  return {
-    address: normalizedAddress,
-    level,
-    orbitType,
+    const needsRefresh =
+      !snapshot ||
+      !snapshot.metadata?.completeness?.positionsReady ||
+      !snapshot.metadata?.completeness?.summaryReady ||
+      isSnapshotStale(snapshot, LEVEL_SNAPSHOT_TTL_MS);
 
-    isLevelActive: snapshot.isLevelActive || false,
+    if (needsRefresh) {
+      snapshot = await rebuildAndEnrichLevelSnapshot(normalizedAddress, level);
+    }
 
-    orbitSummary: snapshot.orbitSummary || {},
-    linePaymentCounts: snapshot.linePaymentCounts || {},
-    lockedForNextLevel: snapshot.lockedForNextLevel || '0',
+    if (!snapshot) {
+      const error = new Error('Failed to build orbit level snapshot');
+      error.status = 500;
+      throw error;
+    }
 
-    positions: snapshot.positions || [],
-  };
+    const totalCycles = Number(snapshot?.orbitSummary?.totalCycles || 0);
+
+    // Warm historical cycle snapshots in the background path of this request
+    await warmCycleSnapshots(normalizedAddress, level, totalCycles);
+
+    return {
+      address: normalizedAddress,
+      level,
+      orbitType,
+      isLevelActive: snapshot.isLevelActive || false,
+      orbitSummary: snapshot.orbitSummary || {},
+      linePaymentCounts: snapshot.linePaymentCounts || {},
+      lockedForNextLevel: snapshot.lockedForNextLevel || '0',
+      positions: snapshot.positions || [],
+    };
+  }, 5000);
 }
+
+
+
 
 // export async function fetchOrbitPositionDetails(address, level, position) {
 //   const { orbitType, positionsCount } = await getOrbitContext(level);
@@ -996,21 +909,38 @@ export async function fetchOrbitLevelSnapshot(address, level) {
 //   const cacheKey = `orbit-position-details:${normalizedAddress.toLowerCase()}:${level}:${position}`;
 
 //   return cached(cacheKey, async () => {
-//     const indexedEventsByPosition = await getIndexedOrbitEventsGrouped(normalizedAddress, level);
-
-//     const snapshot = await buildLivePositionSnapshot(
-//       normalizedAddress,
+//     let snapshot = await OrbitPositionSnapshot.findOne({
+//       address: normalizedAddress,
 //       level,
 //       position,
-//       { indexedEventsByPosition }
-//     );
+//     }).lean();
+
+//     if (!snapshot) {
+//       snapshot = await buildOrbitPositionSnapshot(normalizedAddress, level, position);
+//     }
 
 //     return {
 //       address: normalizedAddress,
 //       level,
 //       position,
 //       orbitType,
-//       ...snapshot,
+//       number: snapshot.position,
+//       line: snapshot.line,
+//       parentPosition: snapshot.parentPosition,
+//       occupant: snapshot.occupant,
+//       amount: snapshot.amount,
+//       timestamp: snapshot.timestamp,
+//       activationId: snapshot.activationId,
+//       activationCycleNumber: snapshot.activationCycleNumber,
+//       isMirrorActivation: snapshot.isMirrorActivation,
+//       truthLabel: snapshot.truthLabel,
+//       indexedEventCount: snapshot.indexedEventCount,
+//       indexedReceiptCount: snapshot.indexedReceiptCount,
+//       receiptTotals: snapshot.receiptTotals,
+//       viewerReceiptBreakdown: snapshot.viewerReceiptBreakdown,
+//       indexedReceipts: snapshot.indexedReceipts || [],
+//       indexedEvents: snapshot.indexedEvents || [],
+//       ruleView: snapshot.ruleView || null,
 //     };
 //   }, 15000);
 // }
@@ -1021,7 +951,7 @@ export async function fetchOrbitPositionDetails(address, level, position) {
   validatePosition(position, positionsCount);
 
   const normalizedAddress = normalizeAddress(address);
-  const cacheKey = `orbit-position-details:${normalizedAddress.toLowerCase()}:${level}:${position}`;
+  const cacheKey = `orbit-position-details:${normalizedAddress}:${level}:${position}`;
 
   return cached(cacheKey, async () => {
     let snapshot = await OrbitPositionSnapshot.findOne({
@@ -1030,8 +960,24 @@ export async function fetchOrbitPositionDetails(address, level, position) {
       position,
     }).lean();
 
+    const needsRefresh =
+      !snapshot ||
+      !snapshot.metadata?.completeness?.receiptsReady ||
+      !snapshot.metadata?.completeness?.eventsReady ||
+      isSnapshotStale(snapshot, POSITION_SNAPSHOT_TTL_MS);
+
+    if (needsRefresh) {
+      snapshot = await buildOrbitPositionSnapshot(
+        normalizedAddress,
+        level,
+        position
+      );
+    }
+
     if (!snapshot) {
-      snapshot = await buildOrbitPositionSnapshot(normalizedAddress, level, position);
+      const error = new Error('Failed to build orbit position snapshot');
+      error.status = 500;
+      throw error;
     }
 
     return {
@@ -1057,8 +1003,10 @@ export async function fetchOrbitPositionDetails(address, level, position) {
       indexedEvents: snapshot.indexedEvents || [],
       ruleView: snapshot.ruleView || null,
     };
-  }, 15000);
+  }, 5000);
 }
+
+
 
 // export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
 //   const normalizedAddress = normalizeAddress(address);
@@ -1068,44 +1016,34 @@ export async function fetchOrbitPositionDetails(address, level, position) {
 //   const cacheKey = `orbit-cycle-snapshot:${normalizedAddress.toLowerCase()}:${level}:${cycleNumber}`;
 
 //   return cached(cacheKey, async () => {
-//     const { orbitType, positionsCount } = await getOrbitContext(level);
-//     const indexedEventsByPosition = await getIndexedOrbitEventsGrouped(normalizedAddress, level);
+//     let snapshot = await OrbitCycleSnapshot.findOne({
+//       address: normalizedAddress,
+//       level,
+//       cycleNumber,
+//     }).lean();
 
-//     const positions = await mapWithConcurrency(
-//       Array.from({ length: positionsCount }, (_, idx) => idx + 1),
-//       1,
-//       async (positionNumber) => {
-//         return buildHistoricalPositionSnapshot(
-//           normalizedAddress,
-//           level,
-//           cycleNumber,
-//           positionNumber,
-//           { indexedEventsByPosition }
-//         );
-//       }
-//     );
-
-//     const filledPositions = positions.filter((item) => !!item.occupant).length;
+//     if (!snapshot) {
+//       snapshot = await buildOrbitCycleSnapshot(normalizedAddress, level, cycleNumber);
+//     }
 
 //     return {
 //       address: normalizedAddress,
 //       level,
 //       cycleNumber,
-//       orbitType,
-//       filledPositions,
-//       totalPositions: positionsCount,
-//       positions,
+//       orbitType: snapshot.orbitType,
+//       filledPositions: snapshot.filledPositions,
+//       totalPositions: snapshot.totalPositions,
+//       positions: snapshot.positions || [],
 //     };
 //   }, 20000);
 // }
-
 
 export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
   const normalizedAddress = normalizeAddress(address);
   validateLevel(level);
   validateCycleNumber(cycleNumber);
 
-  const cacheKey = `orbit-cycle-snapshot:${normalizedAddress.toLowerCase()}:${level}:${cycleNumber}`;
+  const cacheKey = `orbit-cycle-snapshot:${normalizedAddress}:${level}:${cycleNumber}`;
 
   return cached(cacheKey, async () => {
     let snapshot = await OrbitCycleSnapshot.findOne({
@@ -1114,8 +1052,24 @@ export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
       cycleNumber,
     }).lean();
 
+    const needsRefresh =
+      !snapshot ||
+      !snapshot.metadata?.completeness?.positionsReady ||
+      !snapshot.metadata?.completeness?.historicalReady ||
+      isSnapshotStale(snapshot, CYCLE_SNAPSHOT_TTL_MS);
+
+    if (needsRefresh) {
+      snapshot = await buildOrbitCycleSnapshot(
+        normalizedAddress,
+        level,
+        cycleNumber
+      );
+    }
+
     if (!snapshot) {
-      snapshot = await buildOrbitCycleSnapshot(normalizedAddress, level, cycleNumber);
+      const error = new Error('Failed to build orbit cycle snapshot');
+      error.status = 500;
+      throw error;
     }
 
     return {
@@ -1127,5 +1081,5 @@ export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
       totalPositions: snapshot.totalPositions,
       positions: snapshot.positions || [],
     };
-  }, 20000);
+  }, 10000);
 }
