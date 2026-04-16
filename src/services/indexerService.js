@@ -3,7 +3,7 @@ import IndexedReceipt from '../models/IndexedReceipt.js';
 import IndexedOrbitEvent from '../models/IndexedOrbitEvent.js';
 import IndexedRegistrationEvent from '../models/IndexedRegistrationEvent.js';
 import { getContracts } from '../blockchain/contracts.js';
-import { getProvider, safeRpcCall } from '../blockchain/provider.js';
+import { getProvider, safeRpcCall, getProviderHealthSnapshot } from '../blockchain/provider.js';
 import { getStartBlocks, getSyncConfig } from '../config/syncConfig.js';
 
 function isBlockRangeLimitError(error) {
@@ -63,8 +63,11 @@ const blockCache = new Map();
 const targetBackoffUntil = new Map();
 
 const LIVE_TAIL_ENABLED = true;
-const LIVE_TAIL_WINDOW_BLOCKS = 40; // recent confirmed blocks only
+const LIVE_TAIL_WINDOW_BLOCKS = 12;
 const LIVE_TAIL_TARGET_KEYS = new Set(['registration', 'levelManager']);
+const LIVE_TAIL_EVERY_N_PASSES = 3;
+
+let passCounter = 0;
 
 function getTargetBackoffKey(targetKey) {
   return `indexer-backoff:${targetKey}`;
@@ -93,20 +96,19 @@ function getTargetChunkSize(targetKey, syncChunkSize) {
   return Math.max(1, Math.min(preferred[targetKey] || safeBase, safeBase));
 }
 
-async function getBlockCached(provider, blockNumber) {
+async function getBlockCached(blockNumber) {
   const key = Number(blockNumber);
 
   if (blockCache.has(key)) {
     return blockCache.get(key);
   }
 
-  const block = await safeRpcCall(() => provider.getBlock(blockNumber)).catch(() => null);
+  const block = await safeRpcCall((provider) => provider.getBlock(blockNumber)).catch(() => null);
 
   if (block) {
     blockCache.set(key, block);
   }
 
-  // Optional light cap to avoid unbounded memory growth
   if (blockCache.size > 5000) {
     const oldestKey = blockCache.keys().next().value;
     if (oldestKey !== undefined) {
@@ -235,7 +237,6 @@ async function saveOrbitLog(chainId, orbitType, contractAddress, log, parsed, bl
 }
 
 async function processLogsForContract({
-  provider,
   contract,
   contractKey,
   contractAddress,
@@ -244,7 +245,7 @@ async function processLogsForContract({
   chainId,
   orbitType = null,
 }) {
-  const logs = await safeRpcCall(() =>
+  const logs = await safeRpcCall((provider) =>
     provider.getLogs({
       address: contractAddress,
       fromBlock,
@@ -262,7 +263,7 @@ async function processLogsForContract({
 
     if (!parsed) continue;
 
-    const block = await getBlockCached(provider, log.blockNumber);
+    const block = await getBlockCached(log.blockNumber);
     if (!block) continue;
 
     if (
@@ -364,6 +365,7 @@ async function markTargetIdle(targetKey, safeBlock, lastProcessedBlock) {
           lastChunkTo: null,
           retryHint: '',
           coolingDown: false,
+          providerHealth: getProviderHealthSnapshot(),
         },
       },
     }
@@ -371,7 +373,6 @@ async function markTargetIdle(targetKey, safeBlock, lastProcessedBlock) {
 }
 
 async function processTargetChunk({
-  provider,
   chainId,
   safeBlock,
   target,
@@ -411,6 +412,7 @@ async function processTargetChunk({
             lastChunkTo: null,
             retryHint: 'Cooling down after transient RPC issue',
             coolingDown: true,
+            providerHealth: getProviderHealthSnapshot(),
           },
         },
       }
@@ -446,6 +448,7 @@ async function processTargetChunk({
             lastChunkTo: toBlock,
             retryHint: '',
             coolingDown: false,
+            providerHealth: getProviderHealthSnapshot(),
           },
         },
       }
@@ -453,7 +456,6 @@ async function processTargetChunk({
 
     try {
       const logCount = await processLogsForContract({
-        provider,
         contract: target.contract,
         contractKey: target.key,
         contractAddress: target.address,
@@ -482,6 +484,7 @@ async function processTargetChunk({
               lastChunkLogCount: logCount,
               retryHint: '',
               coolingDown: false,
+              providerHealth: getProviderHealthSnapshot(),
             },
           },
         }
@@ -517,6 +520,7 @@ async function processTargetChunk({
                 lastChunkTo: toBlock,
                 retryHint: `Reducing chunk size to ${chunkSize}`,
                 coolingDown: false,
+                providerHealth: getProviderHealthSnapshot(),
               },
             },
           }
@@ -542,6 +546,7 @@ async function processTargetChunk({
                 lastChunkTo: toBlock,
                 retryHint: `Rate-limited; cooling down for ${cooldownMs}ms`,
                 coolingDown: true,
+                providerHealth: getProviderHealthSnapshot(),
               },
             },
           }
@@ -570,6 +575,7 @@ async function processTargetChunk({
               lastChunkTo: toBlock,
               retryHint: '',
               coolingDown: false,
+              providerHealth: getProviderHealthSnapshot(),
             },
           },
         }
@@ -594,7 +600,6 @@ function buildLiveTailTargets(allTargets) {
 }
 
 async function processLiveTailTarget({
-  provider,
   chainId,
   safeBlock,
   target,
@@ -616,7 +621,7 @@ async function processLiveTailTarget({
 
   let currentFrom = tailWindowStart;
   let totalLogs = 0;
-  let chunkSize = Math.max(1, Math.min(target.chunkSize, 10));
+  let chunkSize = Math.max(1, Math.min(target.chunkSize, 6));
   let rateLimited = false;
 
   while (currentFrom <= safeBlock) {
@@ -624,7 +629,6 @@ async function processLiveTailTarget({
 
     try {
       const logCount = await processLogsForContract({
-        provider,
         contract: target.contract,
         contractKey: target.key,
         contractAddress: target.address,
@@ -665,7 +669,6 @@ async function processLiveTailTarget({
 }
 
 async function runLiveTailSync({
-  provider,
   chainId,
   safeBlock,
   targets,
@@ -677,12 +680,20 @@ async function runLiveTailSync({
     };
   }
 
+  if (passCounter % LIVE_TAIL_EVERY_N_PASSES !== 0) {
+    return {
+      enabled: true,
+      skipped: true,
+      windowBlocks: LIVE_TAIL_WINDOW_BLOCKS,
+      results: [],
+    };
+  }
+
   const liveTailTargets = buildLiveTailTargets(targets);
   const results = [];
 
   for (const target of liveTailTargets) {
     const result = await processLiveTailTarget({
-      provider,
       chainId,
       safeBlock,
       target,
@@ -694,29 +705,28 @@ async function runLiveTailSync({
 
   return {
     enabled: true,
+    skipped: false,
     windowBlocks: LIVE_TAIL_WINDOW_BLOCKS,
     results,
   };
 }
 
 async function buildIndexerContext() {
-  const provider = getProvider();
   const contracts = getContracts();
-  const network = await safeRpcCall(() => provider.getNetwork());
+
+  const network = await safeRpcCall((provider) => provider.getNetwork());
   const chainId = Number(network.chainId);
 
   const starts = getStartBlocks();
   const sync = getSyncConfig();
 
-  const latestBlock = await safeRpcCall(() => provider.getBlockNumber());
+  const latestBlock = await safeRpcCall((provider) => provider.getBlockNumber());
   const safeBlock = Math.max(0, latestBlock - sync.confirmations);
 
   const targets = buildTargets(contracts, starts, sync)
     .sort((a, b) => a.priority - b.priority);
 
   return {
-    provider,
-    contracts,
     chainId,
     starts,
     sync,
@@ -732,7 +742,6 @@ export async function runIndexerCycle(context = null) {
 
   for (const target of ctx.targets) {
     const result = await processTargetChunk({
-      provider: ctx.provider,
       chainId: ctx.chainId,
       safeBlock: ctx.safeBlock,
       target,
@@ -750,10 +759,10 @@ export async function runIndexerCycle(context = null) {
 }
 
 export async function runIndexerPass() {
+  passCounter += 1;
   const context = await buildIndexerContext();
 
   const liveTail = await runLiveTailSync({
-    provider: context.provider,
     chainId: context.chainId,
     safeBlock: context.safeBlock,
     targets: context.targets,
@@ -766,6 +775,7 @@ export async function runIndexerPass() {
     safeBlock: context.safeBlock,
     liveTail,
     ordered,
+    providerHealth: getProviderHealthSnapshot(),
   };
 }
 
@@ -791,11 +801,15 @@ export async function startIndexer() {
         await runIndexerPass();
       } catch (err) {
         console.error('Indexer pass error:', err);
+
+        if (isRateLimitError(err)) {
+          await sleep(20000);
+        }
       }
 
       if (stopRequested) break;
 
-      await sleep(Math.max(1500, pollIntervalMs));
+      await sleep(Math.max(5000, pollIntervalMs));
     }
 
     isRunning = false;
@@ -808,8 +822,6 @@ export async function startIndexer() {
 export function stopIndexer() {
   stopRequested = true;
 }
-
-
 
 
 
@@ -889,6 +901,10 @@ export function stopIndexer() {
 // const blockCache = new Map();
 // const targetBackoffUntil = new Map();
 
+// const LIVE_TAIL_ENABLED = true;
+// const LIVE_TAIL_WINDOW_BLOCKS = 40; // recent confirmed blocks only
+// const LIVE_TAIL_TARGET_KEYS = new Set(['registration', 'levelManager']);
+
 // function getTargetBackoffKey(targetKey) {
 //   return `indexer-backoff:${targetKey}`;
 // }
@@ -927,6 +943,14 @@ export function stopIndexer() {
 
 //   if (block) {
 //     blockCache.set(key, block);
+//   }
+
+//   // Optional light cap to avoid unbounded memory growth
+//   if (blockCache.size > 5000) {
+//     const oldestKey = blockCache.keys().next().value;
+//     if (oldestKey !== undefined) {
+//       blockCache.delete(oldestKey);
+//     }
 //   }
 
 //   return block;
@@ -1404,7 +1428,117 @@ export function stopIndexer() {
 //   };
 // }
 
-// export async function runIndexerCycle() {
+// function buildLiveTailTargets(allTargets) {
+//   return allTargets.filter((target) => LIVE_TAIL_TARGET_KEYS.has(target.key));
+// }
+
+// async function processLiveTailTarget({
+//   provider,
+//   chainId,
+//   safeBlock,
+//   target,
+// }) {
+//   const tailWindowStart = Math.max(
+//     Number(target.startBlock || 0),
+//     Math.max(0, safeBlock - LIVE_TAIL_WINDOW_BLOCKS + 1)
+//   );
+
+//   if (tailWindowStart > safeBlock) {
+//     return {
+//       key: target.key,
+//       processed: false,
+//       fromBlock: null,
+//       toBlock: null,
+//       logCount: 0,
+//     };
+//   }
+
+//   let currentFrom = tailWindowStart;
+//   let totalLogs = 0;
+//   let chunkSize = Math.max(1, Math.min(target.chunkSize, 10));
+//   let rateLimited = false;
+
+//   while (currentFrom <= safeBlock) {
+//     const currentTo = Math.min(currentFrom + chunkSize - 1, safeBlock);
+
+//     try {
+//       const logCount = await processLogsForContract({
+//         provider,
+//         contract: target.contract,
+//         contractKey: target.key,
+//         contractAddress: target.address,
+//         fromBlock: currentFrom,
+//         toBlock: currentTo,
+//         chainId,
+//         orbitType: target.orbitType,
+//       });
+
+//       totalLogs += logCount;
+//       currentFrom = currentTo + 1;
+//       await sleep(100);
+//     } catch (error) {
+//       if (isBlockRangeLimitError(error) && chunkSize > 1) {
+//         chunkSize = Math.max(1, Math.floor(chunkSize / 2));
+//         continue;
+//       }
+
+//       if (isRateLimitError(error)) {
+//         rateLimited = true;
+//         setTargetBackoff(target.key, 3000);
+//         break;
+//       }
+
+//       console.error(`Live tail sync failed for ${target.key}:`, error);
+//       break;
+//     }
+//   }
+
+//   return {
+//     key: target.key,
+//     processed: !rateLimited,
+//     fromBlock: tailWindowStart,
+//     toBlock: safeBlock,
+//     logCount: totalLogs,
+//     rateLimited,
+//   };
+// }
+
+// async function runLiveTailSync({
+//   provider,
+//   chainId,
+//   safeBlock,
+//   targets,
+// }) {
+//   if (!LIVE_TAIL_ENABLED) {
+//     return {
+//       enabled: false,
+//       results: [],
+//     };
+//   }
+
+//   const liveTailTargets = buildLiveTailTargets(targets);
+//   const results = [];
+
+//   for (const target of liveTailTargets) {
+//     const result = await processLiveTailTarget({
+//       provider,
+//       chainId,
+//       safeBlock,
+//       target,
+//     });
+
+//     results.push(result);
+//     await sleep(150);
+//   }
+
+//   return {
+//     enabled: true,
+//     windowBlocks: LIVE_TAIL_WINDOW_BLOCKS,
+//     results,
+//   };
+// }
+
+// async function buildIndexerContext() {
 //   const provider = getProvider();
 //   const contracts = getContracts();
 //   const network = await safeRpcCall(() => provider.getNetwork());
@@ -1419,30 +1553,63 @@ export function stopIndexer() {
 //   const targets = buildTargets(contracts, starts, sync)
 //     .sort((a, b) => a.priority - b.priority);
 
+//   return {
+//     provider,
+//     contracts,
+//     chainId,
+//     starts,
+//     sync,
+//     latestBlock,
+//     safeBlock,
+//     targets,
+//   };
+// }
+
+// export async function runIndexerCycle(context = null) {
+//   const ctx = context || await buildIndexerContext();
 //   const results = [];
 
-//   for (const target of targets) {
+//   for (const target of ctx.targets) {
 //     const result = await processTargetChunk({
-//       provider,
-//       chainId,
-//       safeBlock,
+//       provider: ctx.provider,
+//       chainId: ctx.chainId,
+//       safeBlock: ctx.safeBlock,
 //       target,
 //     });
 
 //     results.push(result);
-
 //     await sleep(250);
 //   }
 
 //   return {
-//     latestBlock,
-//     safeBlock,
+//     latestBlock: ctx.latestBlock,
+//     safeBlock: ctx.safeBlock,
 //     results,
 //   };
 // }
 
+// export async function runIndexerPass() {
+//   const context = await buildIndexerContext();
+
+//   const liveTail = await runLiveTailSync({
+//     provider: context.provider,
+//     chainId: context.chainId,
+//     safeBlock: context.safeBlock,
+//     targets: context.targets,
+//   });
+
+//   const ordered = await runIndexerCycle(context);
+
+//   return {
+//     latestBlock: context.latestBlock,
+//     safeBlock: context.safeBlock,
+//     liveTail,
+//     ordered,
+//   };
+// }
+
 // export async function runIndexerOnce() {
-//   return runIndexerCycle();
+//   return runIndexerPass();
 // }
 
 // let isRunning = false;
@@ -1460,9 +1627,9 @@ export function stopIndexer() {
 //   runnerPromise = (async () => {
 //     while (!stopRequested) {
 //       try {
-//         await runIndexerCycle();
+//         await runIndexerPass();
 //       } catch (err) {
-//         console.error('Indexer cycle error:', err);
+//         console.error('Indexer pass error:', err);
 //       }
 
 //       if (stopRequested) break;
