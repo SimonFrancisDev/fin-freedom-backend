@@ -851,97 +851,134 @@ export async function fetchOrbitLevels(address) {
 //   }, 15000);
 // }
 
+// export async function fetchOrbitLevelSnapshot(address, level) {
+//   const normalizedAddress = normalizeAddress(address);
+//   validateLevel(level);
+
+//   const orbitType = levelToOrbitType[level];
+
+//   // =========================
+//   // STEP 1: Try snapshot first
+//   // =========================
+//   let snapshot = await OrbitLevelSnapshot.findOne({
+//     address: normalizedAddress,
+//     level,
+//   }).lean();
+
+//   // =========================
+//   // STEP 2: Build if missing
+//   // =========================
+//   if (!snapshot || !snapshot.metadata?.completeness?.positionsReady) {
+//     snapshot = await buildOrbitLevelSnapshot(normalizedAddress, level);
+//   }
+
+//   // =========================
+//   // STEP 3: Fetch summary (LIGHT RPC ONLY)
+//   // =========================
+//   const {
+//     orbitContract,
+//     registration,
+//     escrow,
+//   } = await getContracts();
+
+//   const isLevelActive = await safeRpcCall(() =>
+//     registration.isLevelActivated(normalizedAddress, level)
+//   );
+
+//   let orbitSummaryRaw = null;
+//   let lineCountsRaw = null;
+//   let lockedRaw = null;
+
+//   try {
+//     orbitSummaryRaw = await safeRpcCall(() =>
+//       orbitContract.getUserOrbit(normalizedAddress, level)
+//     );
+//   } catch {}
+
+//   try {
+//     lineCountsRaw = await safeRpcCall(() =>
+//       orbitContract.getLinePaymentCounts(normalizedAddress, level)
+//     );
+//   } catch {}
+
+//   try {
+//     lockedRaw = await safeRpcCall(() =>
+//       escrow.lockedFunds(normalizedAddress, level, level + 1)
+//     );
+//   } catch {}
+
+//   // =========================
+//   // STEP 4: Format summary
+//   // =========================
+//   const orbitSummary = {
+//     currentPosition: Number(orbitSummaryRaw?.currentPosition || 0),
+//     escrowBalance: formatUsdt(orbitSummaryRaw?.escrowBalance || '0'),
+//     autoUpgradeCompleted: Boolean(orbitSummaryRaw?.autoUpgradeCompleted || false),
+//     positionsInLine1: Number(orbitSummaryRaw?.positionsInLine1 || 0),
+//     positionsInLine2: Number(orbitSummaryRaw?.positionsInLine2 || 0),
+//     positionsInLine3: Number(orbitSummaryRaw?.positionsInLine3 || 0),
+//     totalCycles: Number(orbitSummaryRaw?.totalCycles || 0),
+//     totalEarned: formatUsdt(orbitSummaryRaw?.totalEarned || '0'),
+//   };
+
+//   const linePaymentCounts = {
+//     line1: Number(lineCountsRaw?.[0] || 0),
+//     line2: Number(lineCountsRaw?.[1] || 0),
+//     line3: Number(lineCountsRaw?.[2] || 0),
+//   };
+
+//   const lockedForNextLevel = formatUsdt(lockedRaw || '0');
+
+//   // =========================
+//   // STEP 5: FINAL RESPONSE
+//   // =========================
+//   return {
+//     address: normalizedAddress,
+//     level,
+//     orbitType,
+
+//     isLevelActive,
+
+//     orbitSummary,
+//     linePaymentCounts,
+//     lockedForNextLevel,
+
+//     positions: snapshot.positions || [],
+//   };
+// }
+
+
+
 export async function fetchOrbitLevelSnapshot(address, level) {
   const normalizedAddress = normalizeAddress(address);
   validateLevel(level);
 
   const orbitType = levelToOrbitType[level];
 
-  // =========================
-  // STEP 1: Try snapshot first
-  // =========================
   let snapshot = await OrbitLevelSnapshot.findOne({
     address: normalizedAddress,
     level,
   }).lean();
 
-  // =========================
-  // STEP 2: Build if missing
-  // =========================
-  if (!snapshot || !snapshot.metadata?.completeness?.positionsReady) {
-    snapshot = await buildOrbitLevelSnapshot(normalizedAddress, level);
+  if (!snapshot) {
+    await buildOrbitLevelSnapshot(normalizedAddress, level);
+
+    snapshot = await OrbitLevelSnapshot.findOne({
+      address: normalizedAddress,
+      level,
+    }).lean();
   }
 
-  // =========================
-  // STEP 3: Fetch summary (LIGHT RPC ONLY)
-  // =========================
-  const {
-    orbitContract,
-    registration,
-    escrow,
-  } = await getContracts();
-
-  const isLevelActive = await safeRpcCall(() =>
-    registration.isLevelActivated(normalizedAddress, level)
-  );
-
-  let orbitSummaryRaw = null;
-  let lineCountsRaw = null;
-  let lockedRaw = null;
-
-  try {
-    orbitSummaryRaw = await safeRpcCall(() =>
-      orbitContract.getUserOrbit(normalizedAddress, level)
-    );
-  } catch {}
-
-  try {
-    lineCountsRaw = await safeRpcCall(() =>
-      orbitContract.getLinePaymentCounts(normalizedAddress, level)
-    );
-  } catch {}
-
-  try {
-    lockedRaw = await safeRpcCall(() =>
-      escrow.lockedFunds(normalizedAddress, level, level + 1)
-    );
-  } catch {}
-
-  // =========================
-  // STEP 4: Format summary
-  // =========================
-  const orbitSummary = {
-    currentPosition: Number(orbitSummaryRaw?.currentPosition || 0),
-    escrowBalance: formatUsdt(orbitSummaryRaw?.escrowBalance || '0'),
-    autoUpgradeCompleted: Boolean(orbitSummaryRaw?.autoUpgradeCompleted || false),
-    positionsInLine1: Number(orbitSummaryRaw?.positionsInLine1 || 0),
-    positionsInLine2: Number(orbitSummaryRaw?.positionsInLine2 || 0),
-    positionsInLine3: Number(orbitSummaryRaw?.positionsInLine3 || 0),
-    totalCycles: Number(orbitSummaryRaw?.totalCycles || 0),
-    totalEarned: formatUsdt(orbitSummaryRaw?.totalEarned || '0'),
-  };
-
-  const linePaymentCounts = {
-    line1: Number(lineCountsRaw?.[0] || 0),
-    line2: Number(lineCountsRaw?.[1] || 0),
-    line3: Number(lineCountsRaw?.[2] || 0),
-  };
-
-  const lockedForNextLevel = formatUsdt(lockedRaw || '0');
-
-  // =========================
-  // STEP 5: FINAL RESPONSE
-  // =========================
   return {
     address: normalizedAddress,
     level,
     orbitType,
 
-    isLevelActive,
+    isLevelActive: snapshot.isLevelActive || false,
 
-    orbitSummary,
-    linePaymentCounts,
-    lockedForNextLevel,
+    orbitSummary: snapshot.orbitSummary || {},
+    linePaymentCounts: snapshot.linePaymentCounts || {},
+    lockedForNextLevel: snapshot.lockedForNextLevel || '0',
 
     positions: snapshot.positions || [],
   };

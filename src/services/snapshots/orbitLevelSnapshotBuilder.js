@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import IndexedReceipt from '../../models/IndexedReceipt.js';
 import IndexedOrbitEvent from '../../models/IndexedOrbitEvent.js';
 import OrbitLevelSnapshot from '../../models/OrbitLevelSnapshot.js';
+import { enrichOrbitLevelSnapshot } from './orbitLevelSnapshotEnricher.js';
 
 const RECEIPT_TYPES = {
   FOUNDER_PATH: 1,
@@ -424,5 +425,7 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
     }
   ).lean();
 
-  return snapshot;
+//   return snapshot;
+    await enrichOrbitLevelSnapshot(normalizedAddress, level);
+    return snapshot;
 }
