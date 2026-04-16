@@ -163,6 +163,16 @@ async function mapWithConcurrency(items, limit, mapper) {
   return results;
 }
 
+// function normalizeAddress(address) {
+//   if (!ethers.isAddress(address)) {
+//     const error = new Error('Invalid wallet address');
+//     error.status = 400;
+//     throw error;
+//   }
+
+//   return ethers.getAddress(address);
+// }
+
 function normalizeAddress(address) {
   if (!ethers.isAddress(address)) {
     const error = new Error('Invalid wallet address');
@@ -170,7 +180,7 @@ function normalizeAddress(address) {
     throw error;
   }
 
-  return ethers.getAddress(address);
+  return address.toLowerCase();
 }
 
 function validateLevel(level) {
