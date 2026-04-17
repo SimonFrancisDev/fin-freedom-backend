@@ -317,6 +317,36 @@ function buildRuleViewFromIndexedEvents(eventsForPosition) {
   };
 }
 
+
+function compareChainPoint(aBlock, aLog, bBlock, bLog) {
+  const blockDiff = Number(aBlock || 0) - Number(bBlock || 0);
+  if (blockDiff !== 0) return blockDiff;
+  return Number(aLog || 0) - Number(bLog || 0);
+}
+
+function getLastResetEvent(events) {
+  const resets = events
+    .filter((e) => e.eventName === 'OrbitReset')
+    .sort((a, b) =>
+      compareChainPoint(a.blockNumber, a.logIndex, b.blockNumber, b.logIndex)
+    );
+
+  return resets.length ? resets[resets.length - 1] : null;
+}
+
+function isAfterReset(item, reset) {
+  if (!reset) return true;
+
+  return (
+    compareChainPoint(
+      item.blockNumber,
+      item.logIndex || 0,
+      reset.blockNumber,
+      reset.logIndex || 0
+    ) > 0
+  );
+}
+
 export async function buildOrbitPositionSnapshot(address, level, position, options = {}) {
   const normalizedAddress = normalizeAddress(address);
   validateLevel(level);
@@ -328,24 +358,59 @@ export async function buildOrbitPositionSnapshot(address, level, position, optio
   const builtFromBlock = Number(options.builtFromBlock || 0);
   const freshnessBlock = Number(options.freshnessBlock || builtFromBlock || 0);
 
-  const [eventsForPosition, receiptsForPosition] = await Promise.all([
-    IndexedOrbitEvent.find({
-      orbitOwner: normalizedAddress,
-      level,
-      orbitType,
-      position,
-    })
-      .sort({ blockNumber: 1, logIndex: 1 })
-      .lean(),
+//   const [eventsForPosition, receiptsForPosition] = await Promise.all([
+//     IndexedOrbitEvent.find({
+//       orbitOwner: normalizedAddress,
+//       level,
+//       orbitType,
+//       position,
+//     })
+//       .sort({ blockNumber: 1, logIndex: 1 })
+//       .lean(),
 
-    IndexedReceipt.find({
-      orbitOwner: normalizedAddress,
-      level,
-      sourcePosition: position,
-    })
-      .sort({ blockNumber: 1, logIndex: 1 })
-      .lean(),
-  ]);
+//     IndexedReceipt.find({
+//       orbitOwner: normalizedAddress,
+//       level,
+//       sourcePosition: position,
+//     })
+//       .sort({ blockNumber: 1, logIndex: 1 })
+//       .lean(),
+//   ]);
+
+
+const [allEvents, allReceipts] = await Promise.all([
+  IndexedOrbitEvent.find({
+    orbitOwner: normalizedAddress,
+    level,
+    orbitType,
+  })
+    .sort({ blockNumber: 1, logIndex: 1 })
+    .lean(),
+
+  IndexedReceipt.find({
+    orbitOwner: normalizedAddress,
+    level,
+  })
+    .sort({ blockNumber: 1, logIndex: 1 })
+    .lean(),
+]);
+
+// 🔥 Detect last reset
+const lastReset = getLastResetEvent(allEvents);
+
+// 🔥 Filter ONLY current cycle
+const filteredEvents = allEvents.filter((e) => isAfterReset(e, lastReset));
+const filteredReceipts = allReceipts.filter((r) => isAfterReset(r, lastReset));
+
+// 🔥 Now isolate this position
+const eventsForPosition = filteredEvents.filter(
+  (e) => Number(e.position || 0) === position
+);
+
+const receiptsForPosition = filteredReceipts.filter(
+  (r) => Number(r.sourcePosition || 0) === position
+);
+
 
   const latestFill = [...eventsForPosition]
     .reverse()

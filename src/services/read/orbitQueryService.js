@@ -892,8 +892,27 @@ export async function fetchOrbitLevelSnapshot(address, level) {
 
     const totalCycles = Number(snapshot?.orbitSummary?.totalCycles || 0);
 
-    // Warm historical cycle snapshots in the background path of this request
-    await warmCycleSnapshots(normalizedAddress, level, totalCycles);
+    // 🔥 CRITICAL FIX — GUARANTEE ALL CYCLES EXIST
+    if (totalCycles > 0) {
+      const buildTasks = [];
+
+      for (let cycleNumber = 1; cycleNumber <= totalCycles; cycleNumber++) {
+        buildTasks.push(
+          buildOrbitCycleSnapshot(normalizedAddress, level, cycleNumber).catch((err) => {
+            console.error(
+              `Cycle build failed (${normalizedAddress}, L${level}, C${cycleNumber})`,
+              err
+            );
+          })
+        );
+      }
+
+      // controlled concurrency (no overload)
+      const chunkSize = 3;
+      for (let i = 0; i < buildTasks.length; i += chunkSize) {
+        await Promise.all(buildTasks.slice(i, i + chunkSize));
+      }
+    }
 
     return {
       address: normalizedAddress,

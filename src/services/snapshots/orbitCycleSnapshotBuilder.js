@@ -336,30 +336,49 @@ function getResetEvents(events) {
   );
 }
 
+// function getCycleBoundary(events, cycleNumber) {
+//   const resetEvents = getResetEvents(events);
+
+//   const currentReset =
+//     resetEvents.find((event) => Number(event.cycleNumber || 0) === cycleNumber) ||
+//     resetEvents[cycleNumber - 1] ||
+//     null;
+
+//   if (!currentReset) return null;
+
+//   const currentIndex = resetEvents.findIndex(
+//     (event) =>
+//       Number(event.blockNumber) === Number(currentReset.blockNumber) &&
+//       Number(event.logIndex || 0) === Number(currentReset.logIndex || 0)
+//   );
+
+//   const previousReset = currentIndex > 0 ? resetEvents[currentIndex - 1] : null;
+
+//   return {
+//     previousReset,
+//     currentReset,
+//   };
+// }
+
 function getCycleBoundary(events, cycleNumber) {
   const resetEvents = getResetEvents(events);
 
-  const currentReset =
-    resetEvents.find((event) => Number(event.cycleNumber || 0) === cycleNumber) ||
-    resetEvents[cycleNumber - 1] ||
-    null;
+  // 🔥 STRICT MATCH ONLY
+  const currentReset = resetEvents.find(
+    (event) => Number(event.cycleNumber || 0) === cycleNumber
+  );
 
   if (!currentReset) return null;
 
-  const currentIndex = resetEvents.findIndex(
-    (event) =>
-      Number(event.blockNumber) === Number(currentReset.blockNumber) &&
-      Number(event.logIndex || 0) === Number(currentReset.logIndex || 0)
+  const previousReset = resetEvents.find(
+    (event) => Number(event.cycleNumber || 0) === cycleNumber - 1
   );
 
-  const previousReset = currentIndex > 0 ? resetEvents[currentIndex - 1] : null;
-
   return {
-    previousReset,
+    previousReset: previousReset || null,
     currentReset,
   };
 }
-
 function isWithinCycleBoundary(item, boundary) {
   if (!boundary?.currentReset) return false;
 

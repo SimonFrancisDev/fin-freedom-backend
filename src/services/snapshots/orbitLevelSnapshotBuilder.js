@@ -451,8 +451,18 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
     );
   }
 
+//   const filledCurrentPositions = positions.filter((p) => !!p.occupant).length;
+//   const totalCycles = getCompletedCycleCount(resetEvents);
+
+const totalCycles = getCompletedCycleCount(resetEvents);
+
+// 🔥 CRITICAL FIX — correct current cycle position logic
+let currentPosition = 1;
+
+if (positions.some((p) => p.occupant)) {
   const filledCurrentPositions = positions.filter((p) => !!p.occupant).length;
-  const totalCycles = getCompletedCycleCount(resetEvents);
+  currentPosition = Math.min(filledCurrentPositions + 1, positionsCount);
+}
 
   const positionsInLine1 = positions.filter((p) => p.line === 1 && p.occupant).length;
   const positionsInLine2 = positions.filter((p) => p.line === 2 && p.occupant).length;
@@ -465,7 +475,8 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
 
     isLevelActive: false,
     orbitSummary: {
-      currentPosition: filledCurrentPositions + 1,
+    //   currentPosition: filledCurrentPositions + 1,
+      currentPosition,
       escrowBalance: '0',
       autoUpgradeCompleted: false,
       positionsInLine1,
