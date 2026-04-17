@@ -298,18 +298,13 @@ function getResetEvents(events) {
   );
 }
 
-function getCombinedCompletedCycleCount(resetEvents, allIndexedReceipts) {
-  const maxResetCycle = Math.max(
+function getCompletedCyclesFromResets(resetEvents) {
+  if (!resetEvents.length) return 0;
+
+  return Math.max(
     0,
     ...resetEvents.map((event) => Number(event.cycleNumber || 0))
   );
-
-  const maxReceiptCycle = Math.max(
-    0,
-    ...allIndexedReceipts.map((receipt) => Number(receipt.sourceCycle || 0))
-  );
-
-  return Math.max(maxResetCycle, maxReceiptCycle);
 }
 
 function isAfterResetBoundary(item, resetEvent) {
@@ -322,31 +317,10 @@ function isAfterResetBoundary(item, resetEvent) {
   ) > 0;
 }
 
-function getCurrentCycleEvents(allEvents, totalCycles) {
+function getCurrentCycleEvents(allEvents) {
   const sorted = sortByChainPoint(allEvents);
   const resetEvents = getResetEvents(sorted);
   const lastReset = resetEvents.length ? resetEvents[resetEvents.length - 1] : null;
-
-  const currentCycleNumber = Number(totalCycles || 0) + 1;
-
-  const cycleTaggedCurrentEvents = sorted.filter((event) => {
-    const eventCycle = Number(event.cycleNumber || 0);
-    return (
-      event.eventName !== 'OrbitReset' &&
-      eventCycle > 0 &&
-      eventCycle === currentCycleNumber
-    );
-  });
-
-  if (cycleTaggedCurrentEvents.length > 0) {
-    return {
-      currentEvents: cycleTaggedCurrentEvents,
-      lastReset,
-      resetEvents,
-      currentCycleNumber,
-      source: 'event-cycle-number',
-    };
-  }
 
   return {
     currentEvents: sorted.filter(
@@ -356,21 +330,13 @@ function getCurrentCycleEvents(allEvents, totalCycles) {
     ),
     lastReset,
     resetEvents,
-    currentCycleNumber,
-    source: 'reset-boundary',
   };
 }
 
-function getCurrentCycleReceipts(allReceipts, lastReset, currentCycleNumber) {
-  const cycleTaggedReceipts = allReceipts.filter(
-    (receipt) => Number(receipt.sourceCycle || 0) === Number(currentCycleNumber || 0)
-  );
-
-  if (cycleTaggedReceipts.length > 0) {
-    return cycleTaggedReceipts;
+function getCurrentCycleReceipts(allReceipts, lastReset) {
+  if (!lastReset) {
+    return allReceipts;
   }
-
-  if (!lastReset) return allReceipts;
 
   return allReceipts.filter((receipt) =>
     compareChainPoint(
@@ -448,19 +414,19 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
       .lean(),
   ]);
 
-  const resetEvents = getResetEvents(allIndexedEvents);
-  const totalCycles = getCombinedCompletedCycleCount(resetEvents, allIndexedReceipts);
-
   const {
     currentEvents,
     lastReset,
-    currentCycleNumber,
-  } = getCurrentCycleEvents(allIndexedEvents, totalCycles);
+    resetEvents,
+  } = getCurrentCycleEvents(allIndexedEvents);
+
+  // 🔥 LIVE CURRENT CYCLE MUST BE RESET-DRIVEN ONLY
+  const totalCycles = getCompletedCyclesFromResets(resetEvents);
+  const currentCycleNumber = totalCycles + 1;
 
   const currentReceipts = getCurrentCycleReceipts(
     allIndexedReceipts,
-    lastReset,
-    currentCycleNumber
+    lastReset
   );
 
   const eventsByPosition = groupEventsByPosition(currentEvents);
@@ -530,7 +496,7 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
     positions,
 
     metadata: {
-      snapshotVersion: 2,
+      snapshotVersion: 3,
       builtFromBlock,
       builtAt: new Date(),
       enrichedAt: null,
@@ -543,6 +509,7 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
       cycleDerivation: {
         totalCycles,
         currentCycleNumber,
+        method: 'RESET_ONLY_LIVE',
       },
     },
   };
@@ -585,7 +552,6 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
 
 
 
-// //orbitLevelSnapshotBuilder
 // import { ethers } from 'ethers';
 // import IndexedReceipt from '../../models/IndexedReceipt.js';
 // import IndexedOrbitEvent from '../../models/IndexedOrbitEvent.js';
@@ -886,15 +852,18 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
 //   );
 // }
 
-// function getCompletedCycleCount(resetEvents) {
-//   if (!resetEvents.length) return 0;
-
-//   const maxCycleNumber = Math.max(
+// function getCombinedCompletedCycleCount(resetEvents, allIndexedReceipts) {
+//   const maxResetCycle = Math.max(
 //     0,
 //     ...resetEvents.map((event) => Number(event.cycleNumber || 0))
 //   );
 
-//   return Math.max(resetEvents.length, maxCycleNumber);
+//   const maxReceiptCycle = Math.max(
+//     0,
+//     ...allIndexedReceipts.map((receipt) => Number(receipt.sourceCycle || 0))
+//   );
+
+//   return Math.max(maxResetCycle, maxReceiptCycle);
 // }
 
 // function isAfterResetBoundary(item, resetEvent) {
@@ -907,10 +876,31 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
 //   ) > 0;
 // }
 
-// function getCurrentCycleEvents(allEvents) {
+// function getCurrentCycleEvents(allEvents, totalCycles) {
 //   const sorted = sortByChainPoint(allEvents);
 //   const resetEvents = getResetEvents(sorted);
 //   const lastReset = resetEvents.length ? resetEvents[resetEvents.length - 1] : null;
+
+//   const currentCycleNumber = Number(totalCycles || 0) + 1;
+
+//   const cycleTaggedCurrentEvents = sorted.filter((event) => {
+//     const eventCycle = Number(event.cycleNumber || 0);
+//     return (
+//       event.eventName !== 'OrbitReset' &&
+//       eventCycle > 0 &&
+//       eventCycle === currentCycleNumber
+//     );
+//   });
+
+//   if (cycleTaggedCurrentEvents.length > 0) {
+//     return {
+//       currentEvents: cycleTaggedCurrentEvents,
+//       lastReset,
+//       resetEvents,
+//       currentCycleNumber,
+//       source: 'event-cycle-number',
+//     };
+//   }
 
 //   return {
 //     currentEvents: sorted.filter(
@@ -920,10 +910,20 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
 //     ),
 //     lastReset,
 //     resetEvents,
+//     currentCycleNumber,
+//     source: 'reset-boundary',
 //   };
 // }
 
-// function getCurrentCycleReceipts(allReceipts, lastReset) {
+// function getCurrentCycleReceipts(allReceipts, lastReset, currentCycleNumber) {
+//   const cycleTaggedReceipts = allReceipts.filter(
+//     (receipt) => Number(receipt.sourceCycle || 0) === Number(currentCycleNumber || 0)
+//   );
+
+//   if (cycleTaggedReceipts.length > 0) {
+//     return cycleTaggedReceipts;
+//   }
+
 //   if (!lastReset) return allReceipts;
 
 //   return allReceipts.filter((receipt) =>
@@ -942,6 +942,7 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
 //   eventsForPosition,
 //   receiptsForPosition,
 //   normalizedAddress,
+//   currentCycleNumber,
 // }) {
 //   const snapshot = buildEmptyPosition(orbitType, positionNumber);
 
@@ -969,7 +970,7 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
 //   snapshot.viewerReceiptBreakdown = receiptSummary.viewerBreakdown;
 
 //   snapshot.activationId = 0;
-//   snapshot.activationCycleNumber = 0;
+//   snapshot.activationCycleNumber = currentCycleNumber;
 //   snapshot.isMirrorActivation = false;
 
 //   return snapshot;
@@ -1001,13 +1002,20 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
 //       .lean(),
 //   ]);
 
+//   const resetEvents = getResetEvents(allIndexedEvents);
+//   const totalCycles = getCombinedCompletedCycleCount(resetEvents, allIndexedReceipts);
+
 //   const {
 //     currentEvents,
 //     lastReset,
-//     resetEvents,
-//   } = getCurrentCycleEvents(allIndexedEvents);
+//     currentCycleNumber,
+//   } = getCurrentCycleEvents(allIndexedEvents, totalCycles);
 
-//   const currentReceipts = getCurrentCycleReceipts(allIndexedReceipts, lastReset);
+//   const currentReceipts = getCurrentCycleReceipts(
+//     allIndexedReceipts,
+//     lastReset,
+//     currentCycleNumber
+//   );
 
 //   const eventsByPosition = groupEventsByPosition(currentEvents);
 
@@ -1035,24 +1043,16 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
 //         eventsForPosition,
 //         receiptsForPosition,
 //         normalizedAddress,
+//         currentCycleNumber,
 //       })
 //     );
 //   }
 
-// //   const filledCurrentPositions = positions.filter((p) => !!p.occupant).length;
-// //   const totalCycles = getCompletedCycleCount(resetEvents);
-
-// // const totalCycles = getCompletedCycleCount(resetEvents);
-
-// const totalCycles = resetEvents.length;
-
-// // 🔥 CRITICAL FIX — correct current cycle position logic
-// let currentPosition = 1;
-
-// if (positions.some((p) => p.occupant)) {
-//   const filledCurrentPositions = positions.filter((p) => !!p.occupant).length;
-//   currentPosition = Math.min(filledCurrentPositions + 1, positionsCount);
-// }
+//   let currentPosition = 1;
+//   if (positions.some((p) => p.occupant)) {
+//     const filledCurrentPositions = positions.filter((p) => !!p.occupant).length;
+//     currentPosition = Math.min(filledCurrentPositions + 1, positionsCount);
+//   }
 
 //   const positionsInLine1 = positions.filter((p) => p.line === 1 && p.occupant).length;
 //   const positionsInLine2 = positions.filter((p) => p.line === 2 && p.occupant).length;
@@ -1065,7 +1065,6 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
 
 //     isLevelActive: false,
 //     orbitSummary: {
-//     //   currentPosition: filledCurrentPositions + 1,
 //       currentPosition,
 //       escrowBalance: '0',
 //       autoUpgradeCompleted: false,
@@ -1085,7 +1084,7 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
 //     positions,
 
 //     metadata: {
-//       snapshotVersion: 1,
+//       snapshotVersion: 2,
 //       builtFromBlock,
 //       builtAt: new Date(),
 //       enrichedAt: null,
@@ -1094,6 +1093,10 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
 //         positionsReady: true,
 //         summaryReady: false,
 //         activationFlagsReady: false,
+//       },
+//       cycleDerivation: {
+//         totalCycles,
+//         currentCycleNumber,
 //       },
 //     },
 //   };
