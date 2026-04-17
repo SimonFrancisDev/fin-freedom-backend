@@ -228,22 +228,23 @@ async function saveOrbitLog(chainId, orbitType, contractAddress, log, parsed, bl
       amount = stringifyBigInt(args.amount ?? args[4] ?? 0);
       break;
 
-    case 'OrbitReset': {
-      const owner = args.orbitOwner ?? args.user ?? args[0];
-      if (!owner) {
-        console.warn('OrbitReset missing owner, skipping event:', {
-          txHash: log.transactionHash,
-          logIndex: log.index,
-          rawName: parsed.name,
-          args,
-        });
-        return;
-      }
-      orbitOwner = toLower(owner);
-      level = Number(args.level ?? args[1] ?? 0);
-      cycleNumber = Number(args.cycleNumber ?? args[2] ?? 0);
-      break;
+   case 'OrbitReset': {
+    orbitOwner = toLower(args.user ?? '');
+    level = Number(args.level ?? 0);
+    cycleNumber = Number(args.cycleNumber ?? 0);
+
+    if (!orbitOwner) {
+      console.warn('OrbitReset missing user field:', {
+        txHash: log.transactionHash,
+        logIndex: log.index,
+        eventName,
+        args,
+      });
+      return;
     }
+
+    break;
+  }
 
     case 'LinePaymentTracked':
       orbitOwner = toLower(args.orbitOwner ?? args[0] ?? '');
