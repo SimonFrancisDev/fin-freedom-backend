@@ -379,32 +379,45 @@ function isWithinCycleBoundary(item, boundary) {
   return afterPrevious && beforeCurrent;
 }
 
-function buildFallbackCycleEventsFromReceipts({
-  cycleReceipts,
+function buildFallbackCycleFromFillChunks({
   allIndexedEvents,
+  totalPositions,
   cycleNumber,
 }) {
-  const txHashes = new Set(
-    cycleReceipts
-      .map((receipt) => String(receipt.txHash || '').toLowerCase())
-      .filter(Boolean)
+  const fillEvents = sortByChainPoint(
+    allIndexedEvents.filter((event) => event.eventName === 'PositionFilled')
   );
 
-  const receiptLinkedEvents = allIndexedEvents.filter((event) => {
+  const start = (cycleNumber - 1) * totalPositions;
+  const end = start + totalPositions;
+  const fillChunk = fillEvents.slice(start, end);
+
+  if (fillChunk.length === 0) {
+    return [];
+  }
+
+  const txHashes = new Set(
+    fillChunk.map((event) => String(event.txHash || '').toLowerCase()).filter(Boolean)
+  );
+
+  const chunkEvents = allIndexedEvents.filter((event) => {
     if (event.eventName === 'OrbitReset') return false;
     const txHash = String(event.txHash || '').toLowerCase();
     return txHashes.has(txHash);
   });
 
-  if (receiptLinkedEvents.length > 0) {
-    return receiptLinkedEvents;
+  const fillIds = new Set(
+    fillChunk.map((event) => `${String(event.txHash || '').toLowerCase()}:${Number(event.logIndex || 0)}`)
+  );
+
+  for (const fill of fillChunk) {
+    const key = `${String(fill.txHash || '').toLowerCase()}:${Number(fill.logIndex || 0)}`;
+    if (!fillIds.has(key)) {
+      chunkEvents.push(fill);
+    }
   }
 
-  return allIndexedEvents.filter(
-    (event) =>
-      event.eventName !== 'OrbitReset' &&
-      Number(event.cycleNumber || 0) === cycleNumber
-  );
+  return sortByChainPoint(chunkEvents);
 }
 
 export async function buildOrbitCycleSnapshot(address, level, cycleNumber, options = {}) {
@@ -448,18 +461,31 @@ export async function buildOrbitCycleSnapshot(address, level, cycleNumber, optio
   }
 
   let cycleEvents;
+  let fallbackMode = false;
+
   if (boundary) {
     cycleEvents = allIndexedEvents.filter(
       (event) =>
         event.eventName !== 'OrbitReset' &&
         isWithinCycleBoundary(event, boundary)
     );
+
+    const fillCount = cycleEvents.filter((event) => event.eventName === 'PositionFilled').length;
+    if (fillCount < totalPositions) {
+      cycleEvents = buildFallbackCycleFromFillChunks({
+        allIndexedEvents,
+        totalPositions,
+        cycleNumber,
+      });
+      fallbackMode = true;
+    }
   } else {
-    cycleEvents = buildFallbackCycleEventsFromReceipts({
-      cycleReceipts,
+    cycleEvents = buildFallbackCycleFromFillChunks({
       allIndexedEvents,
+      totalPositions,
       cycleNumber,
     });
+    fallbackMode = true;
   }
 
   if (cycleEvents.length === 0 && cycleReceipts.length === 0) {
@@ -540,7 +566,7 @@ export async function buildOrbitCycleSnapshot(address, level, cycleNumber, optio
     totalPositions,
     positions,
     metadata: {
-      snapshotVersion: 3,
+      snapshotVersion: 4,
       builtFromBlock,
       builtAt: new Date(),
       freshnessBlock,
@@ -549,9 +575,9 @@ export async function buildOrbitCycleSnapshot(address, level, cycleNumber, optio
         historicalReady: true,
       },
       cycleDerivation: {
-        usedResetBoundary: !!boundary,
-        fallbackUsed: !boundary,
-        receiptLinkedFallbackUsed: !boundary,
+        usedResetBoundary: !!boundary && !fallbackMode,
+        fallbackUsed: fallbackMode || !boundary,
+        fillChunkFallbackUsed: fallbackMode,
       },
     },
   };
@@ -568,6 +594,9 @@ export async function buildOrbitCycleSnapshot(address, level, cycleNumber, optio
 
   return snapshot;
 }
+
+
+
 
 
 
@@ -962,6 +991,34 @@ export async function buildOrbitCycleSnapshot(address, level, cycleNumber, optio
 //   return afterPrevious && beforeCurrent;
 // }
 
+// function buildFallbackCycleEventsFromReceipts({
+//   cycleReceipts,
+//   allIndexedEvents,
+//   cycleNumber,
+// }) {
+//   const txHashes = new Set(
+//     cycleReceipts
+//       .map((receipt) => String(receipt.txHash || '').toLowerCase())
+//       .filter(Boolean)
+//   );
+
+//   const receiptLinkedEvents = allIndexedEvents.filter((event) => {
+//     if (event.eventName === 'OrbitReset') return false;
+//     const txHash = String(event.txHash || '').toLowerCase();
+//     return txHashes.has(txHash);
+//   });
+
+//   if (receiptLinkedEvents.length > 0) {
+//     return receiptLinkedEvents;
+//   }
+
+//   return allIndexedEvents.filter(
+//     (event) =>
+//       event.eventName !== 'OrbitReset' &&
+//       Number(event.cycleNumber || 0) === cycleNumber
+//   );
+// }
+
 // export async function buildOrbitCycleSnapshot(address, level, cycleNumber, options = {}) {
 //   const normalizedAddress = normalizeAddress(address);
 //   validateLevel(level);
@@ -991,21 +1048,6 @@ export async function buildOrbitCycleSnapshot(address, level, cycleNumber, optio
 
 //   const boundary = getCycleBoundary(allIndexedEvents, cycleNumber);
 
-//   let cycleEvents;
-//   if (boundary) {
-//     cycleEvents = allIndexedEvents.filter(
-//       (event) =>
-//         event.eventName !== 'OrbitReset' &&
-//         isWithinCycleBoundary(event, boundary)
-//     );
-//   } else {
-//     cycleEvents = allIndexedEvents.filter(
-//       (event) =>
-//         event.eventName !== 'OrbitReset' &&
-//         Number(event.cycleNumber || 0) === cycleNumber
-//     );
-//   }
-
 //   let cycleReceipts;
 //   if (boundary) {
 //     cycleReceipts = allIndexedReceipts.filter((receipt) =>
@@ -1015,6 +1057,21 @@ export async function buildOrbitCycleSnapshot(address, level, cycleNumber, optio
 //     cycleReceipts = allIndexedReceipts.filter(
 //       (receipt) => Number(receipt.sourceCycle || 0) === cycleNumber
 //     );
+//   }
+
+//   let cycleEvents;
+//   if (boundary) {
+//     cycleEvents = allIndexedEvents.filter(
+//       (event) =>
+//         event.eventName !== 'OrbitReset' &&
+//         isWithinCycleBoundary(event, boundary)
+//     );
+//   } else {
+//     cycleEvents = buildFallbackCycleEventsFromReceipts({
+//       cycleReceipts,
+//       allIndexedEvents,
+//       cycleNumber,
+//     });
 //   }
 
 //   if (cycleEvents.length === 0 && cycleReceipts.length === 0) {
@@ -1095,7 +1152,7 @@ export async function buildOrbitCycleSnapshot(address, level, cycleNumber, optio
 //     totalPositions,
 //     positions,
 //     metadata: {
-//       snapshotVersion: 2,
+//       snapshotVersion: 3,
 //       builtFromBlock,
 //       builtAt: new Date(),
 //       freshnessBlock,
@@ -1106,6 +1163,7 @@ export async function buildOrbitCycleSnapshot(address, level, cycleNumber, optio
 //       cycleDerivation: {
 //         usedResetBoundary: !!boundary,
 //         fallbackUsed: !boundary,
+//         receiptLinkedFallbackUsed: !boundary,
 //       },
 //     },
 //   };
