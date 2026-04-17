@@ -298,15 +298,18 @@ function getResetEvents(events) {
   );
 }
 
-function getCompletedCycleCount(resetEvents) {
-  if (!resetEvents.length) return 0;
-
-  const maxCycleNumber = Math.max(
+function getCombinedCompletedCycleCount(resetEvents, allIndexedReceipts) {
+  const maxResetCycle = Math.max(
     0,
     ...resetEvents.map((event) => Number(event.cycleNumber || 0))
   );
 
-  return Math.max(resetEvents.length, maxCycleNumber);
+  const maxReceiptCycle = Math.max(
+    0,
+    ...allIndexedReceipts.map((receipt) => Number(receipt.sourceCycle || 0))
+  );
+
+  return Math.max(maxResetCycle, maxReceiptCycle);
 }
 
 function isAfterResetBoundary(item, resetEvent) {
@@ -319,10 +322,31 @@ function isAfterResetBoundary(item, resetEvent) {
   ) > 0;
 }
 
-function getCurrentCycleEvents(allEvents) {
+function getCurrentCycleEvents(allEvents, totalCycles) {
   const sorted = sortByChainPoint(allEvents);
   const resetEvents = getResetEvents(sorted);
   const lastReset = resetEvents.length ? resetEvents[resetEvents.length - 1] : null;
+
+  const currentCycleNumber = Number(totalCycles || 0) + 1;
+
+  const cycleTaggedCurrentEvents = sorted.filter((event) => {
+    const eventCycle = Number(event.cycleNumber || 0);
+    return (
+      event.eventName !== 'OrbitReset' &&
+      eventCycle > 0 &&
+      eventCycle === currentCycleNumber
+    );
+  });
+
+  if (cycleTaggedCurrentEvents.length > 0) {
+    return {
+      currentEvents: cycleTaggedCurrentEvents,
+      lastReset,
+      resetEvents,
+      currentCycleNumber,
+      source: 'event-cycle-number',
+    };
+  }
 
   return {
     currentEvents: sorted.filter(
@@ -332,10 +356,20 @@ function getCurrentCycleEvents(allEvents) {
     ),
     lastReset,
     resetEvents,
+    currentCycleNumber,
+    source: 'reset-boundary',
   };
 }
 
-function getCurrentCycleReceipts(allReceipts, lastReset) {
+function getCurrentCycleReceipts(allReceipts, lastReset, currentCycleNumber) {
+  const cycleTaggedReceipts = allReceipts.filter(
+    (receipt) => Number(receipt.sourceCycle || 0) === Number(currentCycleNumber || 0)
+  );
+
+  if (cycleTaggedReceipts.length > 0) {
+    return cycleTaggedReceipts;
+  }
+
   if (!lastReset) return allReceipts;
 
   return allReceipts.filter((receipt) =>
@@ -354,6 +388,7 @@ function buildPositionFromIndexedData({
   eventsForPosition,
   receiptsForPosition,
   normalizedAddress,
+  currentCycleNumber,
 }) {
   const snapshot = buildEmptyPosition(orbitType, positionNumber);
 
@@ -381,7 +416,7 @@ function buildPositionFromIndexedData({
   snapshot.viewerReceiptBreakdown = receiptSummary.viewerBreakdown;
 
   snapshot.activationId = 0;
-  snapshot.activationCycleNumber = 0;
+  snapshot.activationCycleNumber = currentCycleNumber;
   snapshot.isMirrorActivation = false;
 
   return snapshot;
@@ -413,13 +448,20 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
       .lean(),
   ]);
 
+  const resetEvents = getResetEvents(allIndexedEvents);
+  const totalCycles = getCombinedCompletedCycleCount(resetEvents, allIndexedReceipts);
+
   const {
     currentEvents,
     lastReset,
-    resetEvents,
-  } = getCurrentCycleEvents(allIndexedEvents);
+    currentCycleNumber,
+  } = getCurrentCycleEvents(allIndexedEvents, totalCycles);
 
-  const currentReceipts = getCurrentCycleReceipts(allIndexedReceipts, lastReset);
+  const currentReceipts = getCurrentCycleReceipts(
+    allIndexedReceipts,
+    lastReset,
+    currentCycleNumber
+  );
 
   const eventsByPosition = groupEventsByPosition(currentEvents);
 
@@ -447,24 +489,16 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
         eventsForPosition,
         receiptsForPosition,
         normalizedAddress,
+        currentCycleNumber,
       })
     );
   }
 
-//   const filledCurrentPositions = positions.filter((p) => !!p.occupant).length;
-//   const totalCycles = getCompletedCycleCount(resetEvents);
-
-// const totalCycles = getCompletedCycleCount(resetEvents);
-
-const totalCycles = resetEvents.length;
-
-// 🔥 CRITICAL FIX — correct current cycle position logic
-let currentPosition = 1;
-
-if (positions.some((p) => p.occupant)) {
-  const filledCurrentPositions = positions.filter((p) => !!p.occupant).length;
-  currentPosition = Math.min(filledCurrentPositions + 1, positionsCount);
-}
+  let currentPosition = 1;
+  if (positions.some((p) => p.occupant)) {
+    const filledCurrentPositions = positions.filter((p) => !!p.occupant).length;
+    currentPosition = Math.min(filledCurrentPositions + 1, positionsCount);
+  }
 
   const positionsInLine1 = positions.filter((p) => p.line === 1 && p.occupant).length;
   const positionsInLine2 = positions.filter((p) => p.line === 2 && p.occupant).length;
@@ -477,7 +511,6 @@ if (positions.some((p) => p.occupant)) {
 
     isLevelActive: false,
     orbitSummary: {
-    //   currentPosition: filledCurrentPositions + 1,
       currentPosition,
       escrowBalance: '0',
       autoUpgradeCompleted: false,
@@ -497,7 +530,7 @@ if (positions.some((p) => p.occupant)) {
     positions,
 
     metadata: {
-      snapshotVersion: 1,
+      snapshotVersion: 2,
       builtFromBlock,
       builtAt: new Date(),
       enrichedAt: null,
@@ -506,6 +539,10 @@ if (positions.some((p) => p.occupant)) {
         positionsReady: true,
         summaryReady: false,
         activationFlagsReady: false,
+      },
+      cycleDerivation: {
+        totalCycles,
+        currentCycleNumber,
       },
     },
   };
@@ -548,7 +585,7 @@ if (positions.some((p) => p.occupant)) {
 
 
 
-
+// //orbitLevelSnapshotBuilder
 // import { ethers } from 'ethers';
 // import IndexedReceipt from '../../models/IndexedReceipt.js';
 // import IndexedOrbitEvent from '../../models/IndexedOrbitEvent.js';
@@ -561,71 +598,6 @@ if (positions.some((p) => p.occupant)) {
 //   ROUTED_SPILLOVER: 3,
 //   RECYCLE: 4,
 // };
-
-// function compareChainPoint(aBlock, aLog, bBlock, bLog) {
-//   const blockDiff = Number(aBlock || 0) - Number(bBlock || 0);
-//   if (blockDiff !== 0) return blockDiff;
-//   return Number(aLog || 0) - Number(bLog || 0);
-// }
-
-// function sortByChainPoint(items) {
-//   return [...items].sort(
-//     (a, b) =>
-//       compareChainPoint(a.blockNumber, a.logIndex, b.blockNumber, b.logIndex)
-//   );
-// }
-
-// function getResetEvents(events) {
-//   return sortByChainPoint(
-//     events.filter((event) => event.eventName === 'OrbitReset')
-//   );
-// }
-
-// function getCompletedCycleCount(resetEvents) {
-//   if (!resetEvents.length) return 0;
-
-//   const maxCycleNumber = Math.max(
-//     0,
-//     ...resetEvents.map((event) => Number(event.cycleNumber || 0))
-//   );
-
-//   return Math.max(resetEvents.length, maxCycleNumber);
-// }
-
-// function isAfterResetBoundary(item, resetEvent) {
-//   if (!resetEvent) return true;
-//   return compareChainPoint(
-//     item.blockNumber,
-//     item.logIndex || 0,
-//     resetEvent.blockNumber,
-//     resetEvent.logIndex || 0
-//   ) > 0;
-// }
-
-// function getCurrentCycleEvents(allEvents) {
-//   const sorted = sortByChainPoint(allEvents);
-//   const resetEvents = getResetEvents(sorted);
-//   const lastReset = resetEvents.length ? resetEvents[resetEvents.length - 1] : null;
-
-//   return sorted.filter(
-//     (event) =>
-//       event.eventName !== 'OrbitReset' &&
-//       isAfterResetBoundary(event, lastReset)
-//   );
-// }
-
-// function getCurrentCycleReceipts(allReceipts, lastReset) {
-//   if (!lastReset) return allReceipts;
-
-//   return allReceipts.filter((receipt) =>
-//     compareChainPoint(
-//       receipt.blockNumber,
-//       receipt.logIndex || 0,
-//       lastReset.blockNumber,
-//       lastReset.logIndex || 0
-//     ) > 0
-//   );
-// }
 
 // const levelToOrbitType = {
 //   1: 'P4',
@@ -895,6 +867,75 @@ if (positions.some((p) => p.occupant)) {
 //   return byPosition;
 // }
 
+// function compareChainPoint(aBlock, aLog, bBlock, bLog) {
+//   const blockDiff = Number(aBlock || 0) - Number(bBlock || 0);
+//   if (blockDiff !== 0) return blockDiff;
+//   return Number(aLog || 0) - Number(bLog || 0);
+// }
+
+// function sortByChainPoint(items) {
+//   return [...items].sort(
+//     (a, b) =>
+//       compareChainPoint(a.blockNumber, a.logIndex, b.blockNumber, b.logIndex)
+//   );
+// }
+
+// function getResetEvents(events) {
+//   return sortByChainPoint(
+//     events.filter((event) => event.eventName === 'OrbitReset')
+//   );
+// }
+
+// function getCompletedCycleCount(resetEvents) {
+//   if (!resetEvents.length) return 0;
+
+//   const maxCycleNumber = Math.max(
+//     0,
+//     ...resetEvents.map((event) => Number(event.cycleNumber || 0))
+//   );
+
+//   return Math.max(resetEvents.length, maxCycleNumber);
+// }
+
+// function isAfterResetBoundary(item, resetEvent) {
+//   if (!resetEvent) return true;
+//   return compareChainPoint(
+//     item.blockNumber,
+//     item.logIndex || 0,
+//     resetEvent.blockNumber,
+//     resetEvent.logIndex || 0
+//   ) > 0;
+// }
+
+// function getCurrentCycleEvents(allEvents) {
+//   const sorted = sortByChainPoint(allEvents);
+//   const resetEvents = getResetEvents(sorted);
+//   const lastReset = resetEvents.length ? resetEvents[resetEvents.length - 1] : null;
+
+//   return {
+//     currentEvents: sorted.filter(
+//       (event) =>
+//         event.eventName !== 'OrbitReset' &&
+//         isAfterResetBoundary(event, lastReset)
+//     ),
+//     lastReset,
+//     resetEvents,
+//   };
+// }
+
+// function getCurrentCycleReceipts(allReceipts, lastReset) {
+//   if (!lastReset) return allReceipts;
+
+//   return allReceipts.filter((receipt) =>
+//     compareChainPoint(
+//       receipt.blockNumber,
+//       receipt.logIndex || 0,
+//       lastReset.blockNumber,
+//       lastReset.logIndex || 0
+//     ) > 0
+//   );
+// }
+
 // function buildPositionFromIndexedData({
 //   orbitType,
 //   positionNumber,
@@ -927,7 +968,6 @@ if (positions.some((p) => p.occupant)) {
 //   snapshot.receiptTotals = receiptSummary.totals;
 //   snapshot.viewerReceiptBreakdown = receiptSummary.viewerBreakdown;
 
-//   // Keep these conservative for now until explicit activation/mirror facts are materialized
 //   snapshot.activationId = 0;
 //   snapshot.activationCycleNumber = 0;
 //   snapshot.isMirrorActivation = false;
@@ -944,7 +984,7 @@ if (positions.some((p) => p.occupant)) {
 //   const builtFromBlock = Number(options.builtFromBlock || 0);
 //   const freshnessBlock = Number(options.freshnessBlock || builtFromBlock || 0);
 
-//   const [indexedEvents, indexedReceipts] = await Promise.all([
+//   const [allIndexedEvents, allIndexedReceipts] = await Promise.all([
 //     IndexedOrbitEvent.find({
 //       orbitOwner: normalizedAddress,
 //       level,
@@ -961,10 +1001,18 @@ if (positions.some((p) => p.occupant)) {
 //       .lean(),
 //   ]);
 
-//   const eventsByPosition = groupEventsByPosition(indexedEvents);
+//   const {
+//     currentEvents,
+//     lastReset,
+//     resetEvents,
+//   } = getCurrentCycleEvents(allIndexedEvents);
+
+//   const currentReceipts = getCurrentCycleReceipts(allIndexedReceipts, lastReset);
+
+//   const eventsByPosition = groupEventsByPosition(currentEvents);
 
 //   const receiptsByPosition = new Map();
-//   for (const receipt of indexedReceipts) {
+//   for (const receipt of currentReceipts) {
 //     const pos = Number(receipt.sourcePosition || 0);
 //     if (pos <= 0) continue;
 
@@ -991,21 +1039,40 @@ if (positions.some((p) => p.occupant)) {
 //     );
 //   }
 
+// //   const filledCurrentPositions = positions.filter((p) => !!p.occupant).length;
+// //   const totalCycles = getCompletedCycleCount(resetEvents);
+
+// // const totalCycles = getCompletedCycleCount(resetEvents);
+
+// const totalCycles = resetEvents.length;
+
+// // 🔥 CRITICAL FIX — correct current cycle position logic
+// let currentPosition = 1;
+
+// if (positions.some((p) => p.occupant)) {
+//   const filledCurrentPositions = positions.filter((p) => !!p.occupant).length;
+//   currentPosition = Math.min(filledCurrentPositions + 1, positionsCount);
+// }
+
+//   const positionsInLine1 = positions.filter((p) => p.line === 1 && p.occupant).length;
+//   const positionsInLine2 = positions.filter((p) => p.line === 2 && p.occupant).length;
+//   const positionsInLine3 = positions.filter((p) => p.line === 3 && p.occupant).length;
+
 //   const update = {
 //     address: normalizedAddress,
 //     level,
 //     orbitType,
 
-//     // conservative until enrichment step fills these
 //     isLevelActive: false,
 //     orbitSummary: {
-//       currentPosition: 0,
+//     //   currentPosition: filledCurrentPositions + 1,
+//       currentPosition,
 //       escrowBalance: '0',
 //       autoUpgradeCompleted: false,
-//       positionsInLine1: 0,
-//       positionsInLine2: 0,
-//       positionsInLine3: 0,
-//       totalCycles: 0,
+//       positionsInLine1,
+//       positionsInLine2,
+//       positionsInLine3,
+//       totalCycles,
 //       totalEarned: '0',
 //     },
 //     linePaymentCounts: {
@@ -1031,17 +1098,28 @@ if (positions.some((p) => p.occupant)) {
 //     },
 //   };
 
-//   const snapshot = await OrbitLevelSnapshot.findOneAndUpdate(
+//   await OrbitLevelSnapshot.findOneAndUpdate(
 //     { address: normalizedAddress, level },
 //     { $set: update },
 //     {
 //       upsert: true,
-//       new: true,
+//       returnDocument: 'after',
 //       setDefaultsOnInsert: true,
 //     }
 //   ).lean();
 
-// //   return snapshot;
-//     await enrichOrbitLevelSnapshot(normalizedAddress, level);
-//     return snapshot;
+//   await enrichOrbitLevelSnapshot(normalizedAddress, level);
+
+//   const enrichedSnapshot = await OrbitLevelSnapshot.findOne({
+//     address: normalizedAddress,
+//     level,
+//   }).lean();
+
+//   if (!enrichedSnapshot) {
+//     const error = new Error('Failed to build orbit level snapshot');
+//     error.status = 500;
+//     throw error;
+//   }
+
+//   return enrichedSnapshot;
 // }
