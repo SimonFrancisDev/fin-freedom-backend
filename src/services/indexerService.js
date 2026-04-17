@@ -200,8 +200,51 @@ async function saveRegistrationLog(chainId, contractAddress, log, parsed, block)
   );
 }
 
+// async function saveOrbitLog(chainId, orbitType, contractAddress, log, parsed, block) {
+//   const args = parsed.args || {};
+
+//   await IndexedOrbitEvent.updateOne(
+//     { txHash: toLower(log.transactionHash), logIndex: log.index },
+//     {
+//       $setOnInsert: {
+//         chainId,
+//         orbitType,
+//         contractAddress: toLower(contractAddress),
+//         eventName: parsed.name,
+//         txHash: toLower(log.transactionHash),
+//         logIndex: log.index,
+//         blockNumber: log.blockNumber,
+//         blockHash: toLower(log.blockHash),
+//         orbitOwner: toLower(args.orbitOwner || ''),
+//         user: toLower(args.user || ''),
+//         level: Number(args.level || 0),
+//         position: Number(args.position || 0),
+//         amount: stringifyBigInt(args.amount || 0),
+//         cycleNumber: Number(args.cycleNumber || 0),
+//         line: Number(args.line || 0),
+//         linePaymentNumber: Number(args.linePaymentNumber || 0),
+//         timestamp: toDateFromSeconds(block.timestamp),
+//         raw: Object.fromEntries(
+//           Object.entries(args).map(([k, v]) => [
+//             k,
+//             typeof v === 'bigint' ? v.toString() : v,
+//           ])
+//         ),
+//       },
+//     },
+//     { upsert: true }
+//   );
+// }
+
+
 async function saveOrbitLog(chainId, orbitType, contractAddress, log, parsed, block) {
   const args = parsed.args || {};
+
+  const derivedOrbitOwner =
+    toLower(args.orbitOwner) ||
+    toLower(args.user) ||
+    toLower(args[0]) ||
+    '';
 
   await IndexedOrbitEvent.updateOne(
     { txHash: toLower(log.transactionHash), logIndex: log.index },
@@ -215,15 +258,19 @@ async function saveOrbitLog(chainId, orbitType, contractAddress, log, parsed, bl
         logIndex: log.index,
         blockNumber: log.blockNumber,
         blockHash: toLower(log.blockHash),
-        orbitOwner: toLower(args.orbitOwner || ''),
+
+        orbitOwner: derivedOrbitOwner, // ✅ FIXED
+
         user: toLower(args.user || ''),
-        level: Number(args.level || 0),
-        position: Number(args.position || 0),
+        level: Number(args.level || args[1] || 0),
+        position: Number(args.position || args[2] || 0),
         amount: stringifyBigInt(args.amount || 0),
-        cycleNumber: Number(args.cycleNumber || 0),
+        cycleNumber: Number(args.cycleNumber || args[2] || 0),
         line: Number(args.line || 0),
         linePaymentNumber: Number(args.linePaymentNumber || 0),
+
         timestamp: toDateFromSeconds(block.timestamp),
+
         raw: Object.fromEntries(
           Object.entries(args).map(([k, v]) => [
             k,
