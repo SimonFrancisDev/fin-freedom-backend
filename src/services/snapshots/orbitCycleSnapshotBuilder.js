@@ -336,23 +336,41 @@ function getResetEvents(events) {
   );
 }
 
+
+
+
 // function getCycleBoundary(events, cycleNumber) {
-//   const resetEvents = getResetEvents(events);
+//   const resetEvents = getResetEvents(events)
+//     .sort((a, b) => {
+//       const blockDiff = a.blockNumber - b.blockNumber;
+//       if (blockDiff !== 0) return blockDiff;
+//       return (a.logIndex || 0) - (b.logIndex || 0);
+//     });
 
-//   const currentReset =
-//     resetEvents.find((event) => Number(event.cycleNumber || 0) === cycleNumber) ||
-//     resetEvents[cycleNumber - 1] ||
-//     null;
+//   // 🔥 SPECIAL CASE: CYCLE 1
+//   if (cycleNumber === 1) {
+//     const firstReset = resetEvents.find(
+//       (e) => Number(e.cycleNumber || 0) === 1
+//     );
 
-//   if (!currentReset) return null;
+//     if (!firstReset) return null;
 
-//   const currentIndex = resetEvents.findIndex(
-//     (event) =>
-//       Number(event.blockNumber) === Number(currentReset.blockNumber) &&
-//       Number(event.logIndex || 0) === Number(currentReset.logIndex || 0)
+//     return {
+//       previousReset: null,
+//       currentReset: firstReset,
+//     };
+//   }
+
+//   // 🔥 NORMAL CASE
+//   const currentReset = resetEvents.find(
+//     (e) => Number(e.cycleNumber || 0) === cycleNumber
 //   );
 
-//   const previousReset = currentIndex > 0 ? resetEvents[currentIndex - 1] : null;
+//   const previousReset = resetEvents.find(
+//     (e) => Number(e.cycleNumber || 0) === cycleNumber - 1
+//   );
+
+//   if (!currentReset || !previousReset) return null;
 
 //   return {
 //     previousReset,
@@ -360,65 +378,50 @@ function getResetEvents(events) {
 //   };
 // }
 
-// function getCycleBoundary(events, cycleNumber) {
-//   const resetEvents = getResetEvents(events);
-
-//   // 🔥 STRICT MATCH ONLY
-//   const currentReset = resetEvents.find(
-//     (event) => Number(event.cycleNumber || 0) === cycleNumber
-//   );
-
-//   if (!currentReset) return null;
-
-//   const previousReset = resetEvents.find(
-//     (event) => Number(event.cycleNumber || 0) === cycleNumber - 1
-//   );
-
-//   return {
-//     previousReset: previousReset || null,
-//     currentReset,
-//   };
-// }
-
-
 function getCycleBoundary(events, cycleNumber) {
-  const resetEvents = getResetEvents(events)
-    .sort((a, b) => {
-      const blockDiff = a.blockNumber - b.blockNumber;
-      if (blockDiff !== 0) return blockDiff;
-      return (a.logIndex || 0) - (b.logIndex || 0);
-    });
+  const resetEvents = getResetEvents(events);
 
-  // 🔥 SPECIAL CASE: CYCLE 1
-  if (cycleNumber === 1) {
-    const firstReset = resetEvents.find(
-      (e) => Number(e.cycleNumber || 0) === 1
-    );
+  // Ensure sorted
+  const sortedResets = [...resetEvents].sort((a, b) => {
+    const blockDiff = a.blockNumber - b.blockNumber;
+    if (blockDiff !== 0) return blockDiff;
+    return (a.logIndex || 0) - (b.logIndex || 0);
+  });
 
-    if (!firstReset) return null;
+  const previousReset = cycleNumber > 1 ? sortedResets[cycleNumber - 2] || null : null;
+  const currentReset = sortedResets[cycleNumber - 1] || null;
 
-    return {
-      previousReset: null,
-      currentReset: firstReset,
-    };
-  }
-
-  // 🔥 NORMAL CASE
-  const currentReset = resetEvents.find(
-    (e) => Number(e.cycleNumber || 0) === cycleNumber
-  );
-
-  const previousReset = resetEvents.find(
-    (e) => Number(e.cycleNumber || 0) === cycleNumber - 1
-  );
-
-  if (!currentReset || !previousReset) return null;
+  if (!currentReset) return null;
 
   return {
     previousReset,
     currentReset,
   };
 }
+
+// function isWithinCycleBoundary(item, boundary) {
+//   if (!boundary?.currentReset) return false;
+
+//   const afterPrevious =
+//     !boundary.previousReset ||
+//     compareChainPoint(
+//       item.blockNumber,
+//       item.logIndex || 0,
+//       boundary.previousReset.blockNumber,
+//       boundary.previousReset.logIndex || 0
+//     ) > 0;
+
+//   const beforeOrAtCurrent =
+//     compareChainPoint(
+//       item.blockNumber,
+//       item.logIndex || 0,
+//       boundary.currentReset.blockNumber,
+//       boundary.currentReset.logIndex || 0
+//     ) <= 0;
+
+//   return afterPrevious && beforeOrAtCurrent;
+// }
+
 
 function isWithinCycleBoundary(item, boundary) {
   if (!boundary?.currentReset) return false;
@@ -432,15 +435,15 @@ function isWithinCycleBoundary(item, boundary) {
       boundary.previousReset.logIndex || 0
     ) > 0;
 
-  const beforeOrAtCurrent =
+  const beforeCurrent =
     compareChainPoint(
       item.blockNumber,
       item.logIndex || 0,
       boundary.currentReset.blockNumber,
       boundary.currentReset.logIndex || 0
-    ) <= 0;
+    ) < 0; // 🔥 STRICTLY LESS THAN
 
-  return afterPrevious && beforeOrAtCurrent;
+  return afterPrevious && beforeCurrent;
 }
 
 export async function buildOrbitCycleSnapshot(address, level, cycleNumber, options = {}) {

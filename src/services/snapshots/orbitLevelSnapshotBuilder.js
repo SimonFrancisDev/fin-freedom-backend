@@ -454,7 +454,9 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
 //   const filledCurrentPositions = positions.filter((p) => !!p.occupant).length;
 //   const totalCycles = getCompletedCycleCount(resetEvents);
 
-const totalCycles = getCompletedCycleCount(resetEvents);
+// const totalCycles = getCompletedCycleCount(resetEvents);
+
+const totalCycles = resetEvents.length;
 
 // 🔥 CRITICAL FIX — correct current cycle position logic
 let currentPosition = 1;

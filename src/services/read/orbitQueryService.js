@@ -1,167 +1,177 @@
-import { ethers } from 'ethers';
-import { getContracts } from '../../blockchain/contracts.js';
-import { safeRpcCall } from '../../blockchain/provider.js';
-import IndexedReceipt from '../../models/IndexedReceipt.js';
-import IndexedOrbitEvent from '../../models/IndexedOrbitEvent.js';
-import OrbitLevelSnapshot from '../../models/OrbitLevelSnapshot.js';
-import OrbitPositionSnapshot from '../../models/OrbitPositionSnapshot.js';
-import OrbitCycleSnapshot from '../../models/OrbitCycleSnapshot.js';
-import { buildOrbitLevelSnapshot } from '../snapshots/orbitLevelSnapshotBuilder.js';
-import { buildOrbitPositionSnapshot } from '../snapshots/orbitPositionSnapshotBuilder.js';
-import { buildOrbitCycleSnapshot } from '../snapshots/orbitCycleSnapshotBuilder.js';
-import { enrichOrbitLevelSnapshot } from '../snapshots/orbitLevelSnapshotEnricher.js';
+// import { ethers } from 'ethers';
+// import { getContracts } from '../../blockchain/contracts.js';
+// import { safeRpcCall } from '../../blockchain/provider.js';
+// import IndexedReceipt from '../../models/IndexedReceipt.js';
+// import IndexedOrbitEvent from '../../models/IndexedOrbitEvent.js';
+// import OrbitLevelSnapshot from '../../models/OrbitLevelSnapshot.js';
+// import OrbitPositionSnapshot from '../../models/OrbitPositionSnapshot.js';
+// import OrbitCycleSnapshot from '../../models/OrbitCycleSnapshot.js';
+// import { buildOrbitLevelSnapshot } from '../snapshots/orbitLevelSnapshotBuilder.js';
+// import { buildOrbitPositionSnapshot } from '../snapshots/orbitPositionSnapshotBuilder.js';
+// import { buildOrbitCycleSnapshot } from '../snapshots/orbitCycleSnapshotBuilder.js';
+// import { enrichOrbitLevelSnapshot } from '../snapshots/orbitLevelSnapshotEnricher.js';
 
 
-const RECEIPT_TYPES = {
-  FOUNDER_PATH: 1,
-  DIRECT_OWNER: 2,
-  ROUTED_SPILLOVER: 3,
-  RECYCLE: 4,
-};
+// const RECEIPT_TYPES = {
+//   FOUNDER_PATH: 1,
+//   DIRECT_OWNER: 2,
+//   ROUTED_SPILLOVER: 3,
+//   RECYCLE: 4,
+// };
 
-const levelToOrbitType = {
-  1: 'P4',
-  2: 'P12',
-  3: 'P39',
-  4: 'P4',
-  5: 'P12',
-  6: 'P39',
-  7: 'P4',
-  8: 'P12',
-  9: 'P39',
-  10: 'P4',
-};
+// const levelToOrbitType = {
+//   1: 'P4',
+//   2: 'P12',
+//   3: 'P39',
+//   4: 'P4',
+//   5: 'P12',
+//   6: 'P39',
+//   7: 'P4',
+//   8: 'P12',
+//   9: 'P39',
+//   10: 'P4',
+// };
 
-const orbitTypeToContractKey = {
-  P4: 'p4Orbit',
-  P12: 'p12Orbit',
-  P39: 'p39Orbit',
-};
+// const orbitTypeToContractKey = {
+//   P4: 'p4Orbit',
+//   P12: 'p12Orbit',
+//   P39: 'p39Orbit',
+// };
 
-const RESPONSE_CACHE_TTL_MS = 10000;
-const inflightCache = new Map();
-const responseCache = new Map();
+// const RESPONSE_CACHE_TTL_MS = 10000;
+// const inflightCache = new Map();
+// const responseCache = new Map();
 
-function cacheGet(key) {
-  const hit = responseCache.get(key);
-  if (!hit) return null;
+// function cacheGet(key) {
+//   const hit = responseCache.get(key);
+//   if (!hit) return null;
 
-  if (Date.now() > hit.expiresAt) {
-    responseCache.delete(key);
-    return null;
-  }
+//   if (Date.now() > hit.expiresAt) {
+//     responseCache.delete(key);
+//     return null;
+//   }
 
-  return hit.value;
-}
+//   return hit.value;
+// }
 
-function cacheSet(key, value, ttlMs = RESPONSE_CACHE_TTL_MS) {
-  responseCache.set(key, {
-    value,
-    expiresAt: Date.now() + ttlMs,
-  });
-}
+// function cacheSet(key, value, ttlMs = RESPONSE_CACHE_TTL_MS) {
+//   responseCache.set(key, {
+//     value,
+//     expiresAt: Date.now() + ttlMs,
+//   });
+// }
 
-async function cached(key, fn, ttlMs = RESPONSE_CACHE_TTL_MS) {
-  const existing = cacheGet(key);
-  if (existing) return existing;
+// async function cached(key, fn, ttlMs = RESPONSE_CACHE_TTL_MS) {
+//   const existing = cacheGet(key);
+//   if (existing) return existing;
 
-  if (inflightCache.has(key)) {
-    return inflightCache.get(key);
-  }
+//   if (inflightCache.has(key)) {
+//     return inflightCache.get(key);
+//   }
 
-  const promise = (async () => {
-    try {
-      const result = await fn();
-      cacheSet(key, result, ttlMs);
-      return result;
-    } finally {
-      inflightCache.delete(key);
-    }
-  })();
+//   const promise = (async () => {
+//     try {
+//       const result = await fn();
+//       cacheSet(key, result, ttlMs);
+//       return result;
+//     } finally {
+//       inflightCache.delete(key);
+//     }
+//   })();
 
-  inflightCache.set(key, promise);
-  return promise;
-}
+//   inflightCache.set(key, promise);
+//   return promise;
+// }
 
 
-const LEVEL_SNAPSHOT_TTL_MS = 15000;
-const POSITION_SNAPSHOT_TTL_MS = 15000;
-const CYCLE_SNAPSHOT_TTL_MS = 30000;
+// const LEVEL_SNAPSHOT_TTL_MS = 15000;
+// const POSITION_SNAPSHOT_TTL_MS = 15000;
+// const CYCLE_SNAPSHOT_TTL_MS = 30000;
 
-function isSnapshotStale(snapshot, ttlMs) {
-  if (!snapshot) return true;
+// function isSnapshotStale(snapshot, ttlMs) {
+//   if (!snapshot) return true;
 
-  const builtAt =
-    snapshot?.metadata?.enrichedAt ||
-    snapshot?.metadata?.builtAt ||
-    snapshot?.updatedAt ||
-    null;
+//   const builtAt =
+//     snapshot?.metadata?.enrichedAt ||
+//     snapshot?.metadata?.builtAt ||
+//     snapshot?.updatedAt ||
+//     null;
 
-  if (!builtAt) return true;
+//   if (!builtAt) return true;
 
-  const builtMs = new Date(builtAt).getTime();
-  if (!Number.isFinite(builtMs)) return true;
+//   const builtMs = new Date(builtAt).getTime();
+//   if (!Number.isFinite(builtMs)) return true;
 
-  return Date.now() - builtMs > ttlMs;
-}
+//   return Date.now() - builtMs > ttlMs;
+// }
 
-async function rebuildAndEnrichLevelSnapshot(address, level) {
-  await buildOrbitLevelSnapshot(address, level);
-  await enrichOrbitLevelSnapshot(address, level);
+// async function rebuildAndEnrichLevelSnapshot(address, level) {
+//   await buildOrbitLevelSnapshot(address, level);
+//   await enrichOrbitLevelSnapshot(address, level);
 
-  return OrbitLevelSnapshot.findOne({
-    address,
-    level,
-  }).lean();
-}
+//   return OrbitLevelSnapshot.findOne({
+//     address,
+//     level,
+//   }).lean();
+// }
 
-async function warmCycleSnapshots(address, level, totalCycles) {
-  const cycleCount = Number(totalCycles || 0);
-  if (cycleCount <= 0) return;
+// async function warmCycleSnapshots(address, level, totalCycles) {
+//   const cycleCount = Number(totalCycles || 0);
+//   if (cycleCount <= 0) return;
 
-  const maxWarmCycles = Math.min(cycleCount, 12);
+//   const maxWarmCycles = Math.min(cycleCount, 12);
 
-  for (let cycleNumber = 1; cycleNumber <= maxWarmCycles; cycleNumber += 1) {
-    const existing = await OrbitCycleSnapshot.findOne({
-      address,
-      level,
-      cycleNumber,
-    })
-      .select({ updatedAt: 1, metadata: 1 })
-      .lean();
+//   for (let cycleNumber = 1; cycleNumber <= maxWarmCycles; cycleNumber += 1) {
+//     const existing = await OrbitCycleSnapshot.findOne({
+//       address,
+//       level,
+//       cycleNumber,
+//     })
+//       .select({ updatedAt: 1, metadata: 1 })
+//       .lean();
 
-    if (!isSnapshotStale(existing, CYCLE_SNAPSHOT_TTL_MS)) {
-      continue;
-    }
+//     if (!isSnapshotStale(existing, CYCLE_SNAPSHOT_TTL_MS)) {
+//       continue;
+//     }
 
-    try {
-      await buildOrbitCycleSnapshot(address, level, cycleNumber);
-    } catch (error) {
-      console.error(
-        `Failed warming cycle snapshot for ${address} level ${level} cycle ${cycleNumber}:`,
-        error
-      );
-    }
-  }
-}
+//     try {
+//       await buildOrbitCycleSnapshot(address, level, cycleNumber);
+//     } catch (error) {
+//       console.error(
+//         `Failed warming cycle snapshot for ${address} level ${level} cycle ${cycleNumber}:`,
+//         error
+//       );
+//     }
+//   }
+// }
 
-async function mapWithConcurrency(items, limit, mapper) {
-  const results = new Array(items.length);
-  let nextIndex = 0;
+// async function mapWithConcurrency(items, limit, mapper) {
+//   const results = new Array(items.length);
+//   let nextIndex = 0;
 
-  async function worker() {
-    while (true) {
-      const current = nextIndex;
-      nextIndex += 1;
-      if (current >= items.length) break;
-      results[current] = await mapper(items[current], current);
-    }
-  }
+//   async function worker() {
+//     while (true) {
+//       const current = nextIndex;
+//       nextIndex += 1;
+//       if (current >= items.length) break;
+//       results[current] = await mapper(items[current], current);
+//     }
+//   }
 
-  const workers = Array.from({ length: Math.max(1, limit) }, () => worker());
-  await Promise.all(workers);
-  return results;
-}
+//   const workers = Array.from({ length: Math.max(1, limit) }, () => worker());
+//   await Promise.all(workers);
+//   return results;
+// }
+
+// // function normalizeAddress(address) {
+// //   if (!ethers.isAddress(address)) {
+// //     const error = new Error('Invalid wallet address');
+// //     error.status = 400;
+// //     throw error;
+// //   }
+
+// //   return ethers.getAddress(address);
+// // }
 
 // function normalizeAddress(address) {
 //   if (!ethers.isAddress(address)) {
@@ -170,764 +180,799 @@ async function mapWithConcurrency(items, limit, mapper) {
 //     throw error;
 //   }
 
-//   return ethers.getAddress(address);
+//   return address.toLowerCase();
 // }
 
-function normalizeAddress(address) {
-  if (!ethers.isAddress(address)) {
-    const error = new Error('Invalid wallet address');
-    error.status = 400;
-    throw error;
-  }
-
-  return address.toLowerCase();
-}
-
-function validateLevel(level) {
-  if (!Number.isInteger(level) || level < 1 || level > 10) {
-    const error = new Error('Invalid level');
-    error.status = 400;
-    throw error;
-  }
-}
-
-function validateCycleNumber(cycleNumber) {
-  if (!Number.isInteger(cycleNumber) || cycleNumber < 1) {
-    const error = new Error('Invalid cycle number');
-    error.status = 400;
-    throw error;
-  }
-}
-
-function validatePosition(position, max) {
-  if (!Number.isInteger(position) || position < 1 || position > max) {
-    const error = new Error('Invalid position');
-    error.status = 400;
-    throw error;
-  }
-}
-
-function formatUsdt(value) {
-  try {
-    return ethers.formatUnits(value ?? 0, 6);
-  } catch {
-    return '0.0';
-  }
-}
-
-function addBigIntStrings(a, b) {
-  return (BigInt(a || '0') + BigInt(b || '0')).toString();
-}
-
-function buildEmptyReceiptTotals() {
-  return {
-    count: 0,
-    gross: '0',
-    escrowLocked: '0',
-    liquidPaid: '0',
-    founderPathGross: '0',
-    directOwnerGross: '0',
-    routedSpilloverGross: '0',
-    recycleGross: '0',
-  };
-}
-
-function buildEmptyViewerBreakdown() {
-  return {
-    count: 0,
-    totalGross: '0',
-    totalLiquid: '0',
-    totalEscrow: '0',
-    founderPathGross: '0',
-    founderPathLiquid: '0',
-    founderPathEscrow: '0',
-    directOwnerGross: '0',
-    directOwnerLiquid: '0',
-    directOwnerEscrow: '0',
-    routedSpilloverGross: '0',
-    routedSpilloverLiquid: '0',
-    routedSpilloverEscrow: '0',
-    recycleGross: '0',
-    recycleLiquid: '0',
-    recycleEscrow: '0',
-  };
-}
-
-function getOrbitPositionCount(orbitType) {
-  if (orbitType === 'P4') return 4;
-  if (orbitType === 'P12') return 12;
-  return 39;
-}
-
-function getLineForPosition(orbitType, position) {
-  if (orbitType === 'P4') return 1;
-  if (orbitType === 'P12') return position <= 3 ? 1 : 2;
-  if (orbitType === 'P39') {
-    if (position <= 3) return 1;
-    if (position <= 12) return 2;
-    return 3;
-  }
-  return 1;
-}
-
-function getStructuralParentPosition(orbitType, position) {
-  if (orbitType === 'P4') return null;
-
-  if (orbitType === 'P12') {
-    if ([4, 7, 10].includes(position)) return 1;
-    if ([5, 8, 11].includes(position)) return 2;
-    if ([6, 9, 12].includes(position)) return 3;
-    return null;
-  }
-
-  if (orbitType === 'P39') {
-    if ([4, 7, 10].includes(position)) return 1;
-    if ([5, 8, 11].includes(position)) return 2;
-    if ([6, 9, 12].includes(position)) return 3;
-    if ([13, 22, 31].includes(position)) return 4;
-    if ([14, 23, 32].includes(position)) return 5;
-    if ([15, 24, 33].includes(position)) return 6;
-    if ([16, 25, 34].includes(position)) return 7;
-    if ([17, 26, 35].includes(position)) return 8;
-    if ([18, 27, 36].includes(position)) return 9;
-    if ([19, 28, 37].includes(position)) return 10;
-    if ([20, 29, 38].includes(position)) return 11;
-    if ([21, 30, 39].includes(position)) return 12;
-    return null;
-  }
-
-  return null;
-}
-
-function getTruthLabelFromReceipts(receipts) {
-  if (!receipts || receipts.length === 0) return 'NO_RECEIPT';
-
-  const types = new Set(receipts.map((r) => Number(r.receiptType || 0)));
-
-  if (types.has(RECEIPT_TYPES.FOUNDER_PATH)) return 'FOUNDER_PATH';
-  if (types.has(RECEIPT_TYPES.DIRECT_OWNER) && types.has(RECEIPT_TYPES.ROUTED_SPILLOVER)) {
-    return 'DIRECT_AND_ROUTED';
-  }
-  if (types.has(RECEIPT_TYPES.DIRECT_OWNER)) return 'DIRECT_OWNER';
-  if (types.has(RECEIPT_TYPES.ROUTED_SPILLOVER)) return 'ROUTED_SPILLOVER';
-  if (types.has(RECEIPT_TYPES.RECYCLE)) return 'RECYCLE';
-
-  return 'UNKNOWN';
-}
-
-function normalizeRuleView(ruleResult) {
-  if (!ruleResult) return null;
-
-  const isHistorical =
-    ruleResult.hasStoredRuleData !== undefined ||
-    (Array.isArray(ruleResult) && ruleResult.length >= 13);
-
-  if (isHistorical) {
-    return {
-      cycleNumber: Number(ruleResult.cycleNumber ?? ruleResult[0] ?? 0),
-      position: Number(ruleResult.position ?? ruleResult[1] ?? 0),
-      line: Number(ruleResult.line ?? ruleResult[2] ?? 0),
-      linePaymentNumber: Number(ruleResult.linePaymentNumber ?? ruleResult[3] ?? 0),
-      autoUpgradeEnabled: Boolean(ruleResult.autoUpgradeEnabled ?? ruleResult[4] ?? false),
-      hasStoredRuleData: Boolean(ruleResult.hasStoredRuleData ?? ruleResult[5] ?? false),
-      isFounderNoReferrerPath: false,
-      toOwner: formatUsdt(ruleResult.toOwner ?? ruleResult[6] ?? 0),
-      toSpillover1: formatUsdt(ruleResult.toSpillover1 ?? ruleResult[7] ?? 0),
-      toSpillover2: formatUsdt(ruleResult.toSpillover2 ?? ruleResult[8] ?? 0),
-      toEscrow: formatUsdt(ruleResult.toEscrow ?? ruleResult[9] ?? 0),
-      toRecycle: formatUsdt(ruleResult.toRecycle ?? ruleResult[10] ?? 0),
-      spillover1Recipient: ruleResult.spillover1Recipient ?? ruleResult[11] ?? ethers.ZeroAddress,
-      spillover2Recipient: ruleResult.spillover2Recipient ?? ruleResult[12] ?? ethers.ZeroAddress,
-    };
-  }
-
-  return {
-    position: Number(ruleResult.position ?? ruleResult[0] ?? 0),
-    line: Number(ruleResult.line ?? ruleResult[1] ?? 0),
-    linePaymentNumber: Number(ruleResult.linePaymentNumber ?? ruleResult[2] ?? 0),
-    autoUpgradeEnabled: Boolean(ruleResult.autoUpgradeEnabled ?? ruleResult[3] ?? false),
-    isFounderNoReferrerPath: Boolean(ruleResult.isFounderNoReferrerPath ?? ruleResult[4] ?? false),
-    hasStoredRuleData: false,
-    toOwner: formatUsdt(ruleResult.toOwner ?? ruleResult[5] ?? 0),
-    toSpillover1: formatUsdt(ruleResult.toSpillover1 ?? ruleResult[6] ?? 0),
-    toSpillover2: formatUsdt(ruleResult.toSpillover2 ?? ruleResult[7] ?? 0),
-    toEscrow: formatUsdt(ruleResult.toEscrow ?? ruleResult[8] ?? 0),
-    toRecycle: formatUsdt(ruleResult.toRecycle ?? ruleResult[9] ?? 0),
-    spillover1Recipient: ruleResult.spillover1Recipient ?? ruleResult[10] ?? ethers.ZeroAddress,
-    spillover2Recipient: ruleResult.spillover2Recipient ?? ruleResult[11] ?? ethers.ZeroAddress,
-  };
-}
-
-async function getOrbitContext(level) {
-  validateLevel(level);
-
-  const orbitType = levelToOrbitType[level];
-  const contractKey = orbitTypeToContractKey[orbitType];
-  const contracts = getContracts();
-
-  if (!orbitType || !contractKey || !contracts[contractKey]) {
-    const error = new Error(`Unsupported level: ${level}`);
-    error.status = 400;
-    throw error;
-  }
-
-  return {
-    contracts,
-    orbitType,
-    orbitContract: contracts[contractKey],
-    positionsCount: getOrbitPositionCount(orbitType),
-  };
-}
-
-async function getLockedForNextLevel(contracts, address, level) {
-  if (level >= 10) return 0n;
-
-  if (typeof contracts.escrow.getLockedAmount === 'function') {
-    return safeRpcCall(() => contracts.escrow.getLockedAmount(address, level, level + 1));
-  }
-
-  if (typeof contracts.escrow.lockedFunds === 'function') {
-    return safeRpcCall(() => contracts.escrow.lockedFunds(address, level, level + 1));
-  }
-
-  return 0n;
-}
-
-async function tryCall(contract, methodNames, args) {
-  for (const methodName of methodNames) {
-    if (typeof contract?.[methodName] === 'function') {
-      try {
-        const result = await safeRpcCall(() => contract[methodName](...args));
-        return { ok: true, methodName, result };
-      } catch {
-        // continue
-      }
-    }
-  }
-
-  return { ok: false, methodName: null, result: null };
-}
-
-function summarizeReceiptsForViewer(receipts, viewedAddress) {
-  const totals = buildEmptyReceiptTotals();
-  const viewer = buildEmptyViewerBreakdown();
-  const lowerViewed = viewedAddress.toLowerCase();
-
-  for (const receipt of receipts) {
-    totals.count += 1;
-    totals.gross = addBigIntStrings(totals.gross, receipt.grossAmount);
-    totals.escrowLocked = addBigIntStrings(totals.escrowLocked, receipt.escrowLocked);
-    totals.liquidPaid = addBigIntStrings(totals.liquidPaid, receipt.liquidPaid);
-
-    const type = Number(receipt.receiptType || 0);
-
-    if (type === RECEIPT_TYPES.FOUNDER_PATH) {
-      totals.founderPathGross = addBigIntStrings(totals.founderPathGross, receipt.grossAmount);
-    } else if (type === RECEIPT_TYPES.DIRECT_OWNER) {
-      totals.directOwnerGross = addBigIntStrings(totals.directOwnerGross, receipt.grossAmount);
-    } else if (type === RECEIPT_TYPES.ROUTED_SPILLOVER) {
-      totals.routedSpilloverGross = addBigIntStrings(totals.routedSpilloverGross, receipt.grossAmount);
-    } else if (type === RECEIPT_TYPES.RECYCLE) {
-      totals.recycleGross = addBigIntStrings(totals.recycleGross, receipt.grossAmount);
-    }
-
-    if ((receipt.receiver || '').toLowerCase() !== lowerViewed) continue;
-
-    viewer.count += 1;
-    viewer.totalGross = addBigIntStrings(viewer.totalGross, receipt.grossAmount);
-    viewer.totalLiquid = addBigIntStrings(viewer.totalLiquid, receipt.liquidPaid);
-    viewer.totalEscrow = addBigIntStrings(viewer.totalEscrow, receipt.escrowLocked);
-
-    if (type === RECEIPT_TYPES.FOUNDER_PATH) {
-      viewer.founderPathGross = addBigIntStrings(viewer.founderPathGross, receipt.grossAmount);
-      viewer.founderPathLiquid = addBigIntStrings(viewer.founderPathLiquid, receipt.liquidPaid);
-      viewer.founderPathEscrow = addBigIntStrings(viewer.founderPathEscrow, receipt.escrowLocked);
-    } else if (type === RECEIPT_TYPES.DIRECT_OWNER) {
-      viewer.directOwnerGross = addBigIntStrings(viewer.directOwnerGross, receipt.grossAmount);
-      viewer.directOwnerLiquid = addBigIntStrings(viewer.directOwnerLiquid, receipt.liquidPaid);
-      viewer.directOwnerEscrow = addBigIntStrings(viewer.directOwnerEscrow, receipt.escrowLocked);
-    } else if (type === RECEIPT_TYPES.ROUTED_SPILLOVER) {
-      viewer.routedSpilloverGross = addBigIntStrings(viewer.routedSpilloverGross, receipt.grossAmount);
-      viewer.routedSpilloverLiquid = addBigIntStrings(viewer.routedSpilloverLiquid, receipt.liquidPaid);
-      viewer.routedSpilloverEscrow = addBigIntStrings(viewer.routedSpilloverEscrow, receipt.escrowLocked);
-    } else if (type === RECEIPT_TYPES.RECYCLE) {
-      viewer.recycleGross = addBigIntStrings(viewer.recycleGross, receipt.grossAmount);
-      viewer.recycleLiquid = addBigIntStrings(viewer.recycleLiquid, receipt.liquidPaid);
-      viewer.recycleEscrow = addBigIntStrings(viewer.recycleEscrow, receipt.escrowLocked);
-    }
-  }
-
-  return {
-    totals: {
-      count: totals.count,
-      gross: formatUsdt(totals.gross),
-      escrowLocked: formatUsdt(totals.escrowLocked),
-      liquidPaid: formatUsdt(totals.liquidPaid),
-      founderPathGross: formatUsdt(totals.founderPathGross),
-      directOwnerGross: formatUsdt(totals.directOwnerGross),
-      routedSpilloverGross: formatUsdt(totals.routedSpilloverGross),
-      recycleGross: formatUsdt(totals.recycleGross),
-    },
-    viewerBreakdown: {
-      count: viewer.count,
-      totalGross: formatUsdt(viewer.totalGross),
-      totalLiquid: formatUsdt(viewer.totalLiquid),
-      totalEscrow: formatUsdt(viewer.totalEscrow),
-      founderPathGross: formatUsdt(viewer.founderPathGross),
-      founderPathLiquid: formatUsdt(viewer.founderPathLiquid),
-      founderPathEscrow: formatUsdt(viewer.founderPathEscrow),
-      directOwnerGross: formatUsdt(viewer.directOwnerGross),
-      directOwnerLiquid: formatUsdt(viewer.directOwnerLiquid),
-      directOwnerEscrow: formatUsdt(viewer.directOwnerEscrow),
-      routedSpilloverGross: formatUsdt(viewer.routedSpilloverGross),
-      routedSpilloverLiquid: formatUsdt(viewer.routedSpilloverLiquid),
-      routedSpilloverEscrow: formatUsdt(viewer.routedSpilloverEscrow),
-      recycleGross: formatUsdt(viewer.recycleGross),
-      recycleLiquid: formatUsdt(viewer.recycleLiquid),
-      recycleEscrow: formatUsdt(viewer.recycleEscrow),
-    },
-    truthLabel: getTruthLabelFromReceipts(receipts),
-  };
-}
-
-async function fetchIndexedReceiptsForActivation(activationId) {
-  if (!activationId || Number(activationId) <= 0) return [];
-
-  return IndexedReceipt.find({
-    activationId: String(activationId),
-  })
-    .sort({ blockNumber: 1, logIndex: 1 })
-    .lean();
-}
-
-async function fetchLiveRuleView(orbitContract, address, level, position) {
-  const call = await tryCall(
-    orbitContract,
-    ['getPositionRuleView'],
-    [address, level, position]
-  );
-
-  return call.ok ? normalizeRuleView(call.result) : null;
-}
-
-async function fetchHistoricalRuleView(orbitContract, address, level, cycleNumber, position) {
-  const call = await tryCall(
-    orbitContract,
-    ['getHistoricalPositionRuleView'],
-    [address, level, cycleNumber, position]
-  );
-
-  return call.ok ? normalizeRuleView(call.result) : null;
-}
-
-async function fetchLiveActivationData(orbitContract, address, level, position) {
-  if (typeof orbitContract.getPositionActivationData !== 'function') {
-    return {
-      activationId: 0,
-      activationCycleNumber: 0,
-      isMirrorActivation: false,
-    };
-  }
-
-  try {
-    const result = await safeRpcCall(() =>
-      orbitContract.getPositionActivationData(address, level, position)
-    );
-
-    return {
-      activationId: Number(result?.activationId ?? result?.[0] ?? 0),
-      activationCycleNumber: Number(result?.cycleNumber ?? result?.[1] ?? 0),
-      isMirrorActivation: Boolean(result?.isMirror ?? result?.[2] ?? false),
-    };
-  } catch {
-    return {
-      activationId: 0,
-      activationCycleNumber: 0,
-      isMirrorActivation: false,
-    };
-  }
-}
-
-async function fetchHistoricalActivationData(orbitContract, address, level, cycleNumber, position) {
-  if (typeof orbitContract.getHistoricalPositionActivationData !== 'function') {
-    return {
-      activationId: 0,
-      activationCycleNumber: cycleNumber,
-      isMirrorActivation: false,
-    };
-  }
-
-  try {
-    const result = await safeRpcCall(() =>
-      orbitContract.getHistoricalPositionActivationData(
-        address,
-        level,
-        cycleNumber,
-        position
-      )
-    );
-
-    return {
-      activationId: Number(result?.activationId ?? result?.[0] ?? 0),
-      activationCycleNumber: cycleNumber,
-      isMirrorActivation: Boolean(result?.isMirror ?? result?.[1] ?? false),
-    };
-  } catch {
-    return {
-      activationId: 0,
-      activationCycleNumber: cycleNumber,
-      isMirrorActivation: false,
-    };
-  }
-}
-
-function shapeIndexedReceipts(receipts) {
-  return receipts.map((receipt) => ({
-    txHash: receipt.txHash,
-    logIndex: receipt.logIndex,
-    blockNumber: receipt.blockNumber,
-    receiver: receipt.receiver,
-    activationId: receipt.activationId,
-    receiptType: receipt.receiptType,
-    level: receipt.level,
-    fromUser: receipt.fromUser,
-    orbitOwner: receipt.orbitOwner,
-    sourcePosition: receipt.sourcePosition,
-    sourceCycle: receipt.sourceCycle,
-    mirroredPosition: receipt.mirroredPosition,
-    mirroredCycle: receipt.mirroredCycle,
-    routedRole: receipt.routedRole,
-    grossAmount: formatUsdt(receipt.grossAmount),
-    escrowLocked: formatUsdt(receipt.escrowLocked),
-    liquidPaid: formatUsdt(receipt.liquidPaid),
-    timestamp: receipt.timestamp,
-    rawEventName: receipt.rawEventName,
-  }));
-}
-
-function findBestIndexedPositionFilledEvent(indexedEvents = []) {
-  return indexedEvents.find((event) => event.eventName === 'PositionFilled') || null;
-}
-
-function findActivationIdFromIndexedReceipts(receipts = [], cycleNumber, positionNumber) {
-  const match = receipts.find(
-    (receipt) =>
-      Number(receipt.sourceCycle || 0) === Number(cycleNumber) &&
-      Number(receipt.sourcePosition || 0) === Number(positionNumber) &&
-      Number(receipt.activationId || 0) > 0
-  );
-
-  return match ? Number(match.activationId) : 0;
-}
-
-async function fetchIndexedReceiptsForHistoricalPosition(orbitOwner, level, cycleNumber, positionNumber) {
-  return IndexedReceipt.find({
-    orbitOwner: orbitOwner.toLowerCase(),
-    level,
-    sourceCycle: Number(cycleNumber),
-    sourcePosition: Number(positionNumber),
-  })
-    .sort({ blockNumber: 1, logIndex: 1 })
-    .lean();
-}
-
-async function getIndexedOrbitEventsGrouped(orbitOwner, level) {
-  const docs = await IndexedOrbitEvent.find({
-    orbitOwner: orbitOwner.toLowerCase(),
-    level,
-  })
-    .sort({ blockNumber: 1, logIndex: 1 })
-    .lean();
-
-  const byPosition = new Map();
-
-  for (const doc of docs) {
-    const pos = Number(doc.position || 0);
-    if (!byPosition.has(pos)) {
-      byPosition.set(pos, []);
-    }
-    byPosition.get(pos).push(doc);
-  }
-
-  return byPosition;
-}
-
-async function buildLivePositionSnapshot(address, level, positionNumber, preloaded = {}) {
-  const normalizedAddress = normalizeAddress(address);
-  const { orbitType, orbitContract } = await getOrbitContext(level);
-
-  const [position, activationData, ruleView] = await Promise.all([
-    safeRpcCall(() => orbitContract.getPosition(normalizedAddress, level, positionNumber)).catch(() => null),
-    fetchLiveActivationData(orbitContract, normalizedAddress, level, positionNumber),
-    fetchLiveRuleView(orbitContract, normalizedAddress, level, positionNumber),
-  ]);
-
-  const indexedEvents = preloaded.indexedEventsByPosition?.get(positionNumber) || [];
-  const occupant = position?.[0] && position[0] !== ethers.ZeroAddress ? position[0] : null;
-  const indexedReceipts = await fetchIndexedReceiptsForActivation(activationData.activationId);
-  const receiptSummary = summarizeReceiptsForViewer(indexedReceipts, normalizedAddress);
-
-  return {
-    number: positionNumber,
-    level,
-    orbitType,
-    line: getLineForPosition(orbitType, positionNumber),
-    parentPosition: getStructuralParentPosition(orbitType, positionNumber),
-    occupant,
-    amount: occupant ? formatUsdt(position?.[1]) : '0.0',
-    timestamp: Number(position?.[2] ?? 0),
-    activationId: activationData.activationId,
-    activationCycleNumber: activationData.activationCycleNumber,
-    isMirrorActivation: activationData.isMirrorActivation,
-    truthLabel: receiptSummary.truthLabel,
-    indexedEventCount: indexedEvents.length,
-    indexedReceiptCount: indexedReceipts.length,
-    receiptTotals: receiptSummary.totals,
-    viewerReceiptBreakdown: receiptSummary.viewerBreakdown,
-    indexedReceipts: shapeIndexedReceipts(indexedReceipts),
-    indexedEvents,
-    ruleView,
-  };
-}
-
-async function buildHistoricalPositionSnapshot(address, level, cycleNumber, positionNumber, preloaded = {}) {
-  const normalizedAddress = normalizeAddress(address);
-  const { orbitType, orbitContract } = await getOrbitContext(level);
-
-  const indexedEvents = preloaded.indexedEventsByPosition?.get(positionNumber) || [];
-
-  const indexedReceiptsForPosition = await fetchIndexedReceiptsForHistoricalPosition(
-    normalizedAddress,
-    level,
-    cycleNumber,
-    positionNumber
-  );
-
-  const historicalPositionCall = await tryCall(
-    orbitContract,
-    ['getHistoricalPosition', 'getCyclePosition', 'getStoredCyclePosition', 'getArchivedPosition'],
-    [normalizedAddress, level, cycleNumber, positionNumber]
-  );
-
-  if (!historicalPositionCall.ok) {
-    const error = new Error('Historical position getter not supported by this orbit contract');
-    error.status = 400;
-    throw error;
-  }
-
-  const position = historicalPositionCall.result || [];
-  let occupant = position?.[0] && position[0] !== ethers.ZeroAddress ? position[0] : null;
-  let amount = occupant ? formatUsdt(position?.[1]) : '0.0';
-  let timestamp = Number(position?.[2] ?? 0);
-
-  const [activationDataRaw, ruleView] = await Promise.all([
-    fetchHistoricalActivationData(orbitContract, normalizedAddress, level, cycleNumber, positionNumber),
-    fetchHistoricalRuleView(orbitContract, normalizedAddress, level, cycleNumber, positionNumber),
-  ]);
-
-  let activationId = Number(activationDataRaw.activationId || 0);
-  let activationCycleNumber = Number(activationDataRaw.activationCycleNumber || cycleNumber);
-  let isMirrorActivation = Boolean(activationDataRaw.isMirrorActivation || false);
-
-  const bestIndexedPositionFilled = findBestIndexedPositionFilledEvent(indexedEvents);
-
-  if (!occupant && bestIndexedPositionFilled) {
-    occupant = bestIndexedPositionFilled.user || null;
-
-    if (bestIndexedPositionFilled.amount) {
-      amount = formatUsdt(bestIndexedPositionFilled.amount);
-    }
-
-    if (bestIndexedPositionFilled.timestamp) {
-      timestamp = Math.floor(new Date(bestIndexedPositionFilled.timestamp).getTime() / 1000);
-    }
-  }
-
-  if (!activationId && indexedReceiptsForPosition.length > 0) {
-    activationId = findActivationIdFromIndexedReceipts(
-      indexedReceiptsForPosition,
-      cycleNumber,
-      positionNumber
-    );
-  }
-
-  const indexedReceipts =
-    activationId > 0
-      ? await fetchIndexedReceiptsForActivation(activationId)
-      : indexedReceiptsForPosition;
-
-  const receiptSummary = summarizeReceiptsForViewer(indexedReceipts, normalizedAddress);
-
-  let truthLabel = receiptSummary.truthLabel;
-  if (truthLabel === 'NO_RECEIPT' && bestIndexedPositionFilled && occupant) {
-    truthLabel = 'UNKNOWN';
-  }
-
-  return {
-    number: positionNumber,
-    level,
-    cycleNumber,
-    orbitType,
-    line: getLineForPosition(orbitType, positionNumber),
-    parentPosition: getStructuralParentPosition(orbitType, positionNumber),
-    occupant,
-    amount,
-    timestamp,
-    activationId,
-    activationCycleNumber,
-    isMirrorActivation,
-    truthLabel,
-    indexedEventCount: indexedEvents.length,
-    indexedReceiptCount: indexedReceipts.length,
-    receiptTotals: {
-      ...receiptSummary.totals,
-    },
-    viewerReceiptBreakdown: {
-      ...receiptSummary.viewerBreakdown,
-    },
-    indexedReceipts: shapeIndexedReceipts(indexedReceipts),
-    indexedEvents,
-    ruleView,
-  };
-}
-
-export async function fetchOrbitLevels(address) {
-  const normalizedAddress = normalizeAddress(address);
-  const cacheKey = `orbit-levels:${normalizedAddress.toLowerCase()}`;
-
-  return cached(cacheKey, async () => {
-    const contracts = getContracts();
-
-    const levels = await mapWithConcurrency(
-      Array.from({ length: 10 }, (_, index) => index + 1),
-      1,
-      async (level) => {
-        const isActive = await safeRpcCall(() =>
-          contracts.registration.isLevelActivated(normalizedAddress, level)
-        ).catch(() => false);
-
-        return {
-          level,
-          orbitType: levelToOrbitType[level],
-          isActive: Boolean(isActive),
-        };
-      }
-    );
-
-    const activeLevels = levels.filter((item) => item.isActive).map((item) => item.level);
-    const highestActiveLevel = activeLevels.length ? Math.max(...activeLevels) : 0;
-
-    return {
-      address: normalizedAddress,
-      levels,
-      highestActiveLevel,
-    };
-  });
-}
+// function validateLevel(level) {
+//   if (!Number.isInteger(level) || level < 1 || level > 10) {
+//     const error = new Error('Invalid level');
+//     error.status = 400;
+//     throw error;
+//   }
+// }
+
+// function validateCycleNumber(cycleNumber) {
+//   if (!Number.isInteger(cycleNumber) || cycleNumber < 1) {
+//     const error = new Error('Invalid cycle number');
+//     error.status = 400;
+//     throw error;
+//   }
+// }
+
+// function validatePosition(position, max) {
+//   if (!Number.isInteger(position) || position < 1 || position > max) {
+//     const error = new Error('Invalid position');
+//     error.status = 400;
+//     throw error;
+//   }
+// }
+
+// function formatUsdt(value) {
+//   try {
+//     return ethers.formatUnits(value ?? 0, 6);
+//   } catch {
+//     return '0.0';
+//   }
+// }
+
+// function addBigIntStrings(a, b) {
+//   return (BigInt(a || '0') + BigInt(b || '0')).toString();
+// }
+
+// function buildEmptyReceiptTotals() {
+//   return {
+//     count: 0,
+//     gross: '0',
+//     escrowLocked: '0',
+//     liquidPaid: '0',
+//     founderPathGross: '0',
+//     directOwnerGross: '0',
+//     routedSpilloverGross: '0',
+//     recycleGross: '0',
+//   };
+// }
+
+// function buildEmptyViewerBreakdown() {
+//   return {
+//     count: 0,
+//     totalGross: '0',
+//     totalLiquid: '0',
+//     totalEscrow: '0',
+//     founderPathGross: '0',
+//     founderPathLiquid: '0',
+//     founderPathEscrow: '0',
+//     directOwnerGross: '0',
+//     directOwnerLiquid: '0',
+//     directOwnerEscrow: '0',
+//     routedSpilloverGross: '0',
+//     routedSpilloverLiquid: '0',
+//     routedSpilloverEscrow: '0',
+//     recycleGross: '0',
+//     recycleLiquid: '0',
+//     recycleEscrow: '0',
+//   };
+// }
+
+// function getOrbitPositionCount(orbitType) {
+//   if (orbitType === 'P4') return 4;
+//   if (orbitType === 'P12') return 12;
+//   return 39;
+// }
+
+// function getLineForPosition(orbitType, position) {
+//   if (orbitType === 'P4') return 1;
+//   if (orbitType === 'P12') return position <= 3 ? 1 : 2;
+//   if (orbitType === 'P39') {
+//     if (position <= 3) return 1;
+//     if (position <= 12) return 2;
+//     return 3;
+//   }
+//   return 1;
+// }
+
+// function getStructuralParentPosition(orbitType, position) {
+//   if (orbitType === 'P4') return null;
+
+//   if (orbitType === 'P12') {
+//     if ([4, 7, 10].includes(position)) return 1;
+//     if ([5, 8, 11].includes(position)) return 2;
+//     if ([6, 9, 12].includes(position)) return 3;
+//     return null;
+//   }
+
+//   if (orbitType === 'P39') {
+//     if ([4, 7, 10].includes(position)) return 1;
+//     if ([5, 8, 11].includes(position)) return 2;
+//     if ([6, 9, 12].includes(position)) return 3;
+//     if ([13, 22, 31].includes(position)) return 4;
+//     if ([14, 23, 32].includes(position)) return 5;
+//     if ([15, 24, 33].includes(position)) return 6;
+//     if ([16, 25, 34].includes(position)) return 7;
+//     if ([17, 26, 35].includes(position)) return 8;
+//     if ([18, 27, 36].includes(position)) return 9;
+//     if ([19, 28, 37].includes(position)) return 10;
+//     if ([20, 29, 38].includes(position)) return 11;
+//     if ([21, 30, 39].includes(position)) return 12;
+//     return null;
+//   }
+
+//   return null;
+// }
+
+// function getTruthLabelFromReceipts(receipts) {
+//   if (!receipts || receipts.length === 0) return 'NO_RECEIPT';
+
+//   const types = new Set(receipts.map((r) => Number(r.receiptType || 0)));
+
+//   if (types.has(RECEIPT_TYPES.FOUNDER_PATH)) return 'FOUNDER_PATH';
+//   if (types.has(RECEIPT_TYPES.DIRECT_OWNER) && types.has(RECEIPT_TYPES.ROUTED_SPILLOVER)) {
+//     return 'DIRECT_AND_ROUTED';
+//   }
+//   if (types.has(RECEIPT_TYPES.DIRECT_OWNER)) return 'DIRECT_OWNER';
+//   if (types.has(RECEIPT_TYPES.ROUTED_SPILLOVER)) return 'ROUTED_SPILLOVER';
+//   if (types.has(RECEIPT_TYPES.RECYCLE)) return 'RECYCLE';
+
+//   return 'UNKNOWN';
+// }
+
+// function normalizeRuleView(ruleResult) {
+//   if (!ruleResult) return null;
+
+//   const isHistorical =
+//     ruleResult.hasStoredRuleData !== undefined ||
+//     (Array.isArray(ruleResult) && ruleResult.length >= 13);
+
+//   if (isHistorical) {
+//     return {
+//       cycleNumber: Number(ruleResult.cycleNumber ?? ruleResult[0] ?? 0),
+//       position: Number(ruleResult.position ?? ruleResult[1] ?? 0),
+//       line: Number(ruleResult.line ?? ruleResult[2] ?? 0),
+//       linePaymentNumber: Number(ruleResult.linePaymentNumber ?? ruleResult[3] ?? 0),
+//       autoUpgradeEnabled: Boolean(ruleResult.autoUpgradeEnabled ?? ruleResult[4] ?? false),
+//       hasStoredRuleData: Boolean(ruleResult.hasStoredRuleData ?? ruleResult[5] ?? false),
+//       isFounderNoReferrerPath: false,
+//       toOwner: formatUsdt(ruleResult.toOwner ?? ruleResult[6] ?? 0),
+//       toSpillover1: formatUsdt(ruleResult.toSpillover1 ?? ruleResult[7] ?? 0),
+//       toSpillover2: formatUsdt(ruleResult.toSpillover2 ?? ruleResult[8] ?? 0),
+//       toEscrow: formatUsdt(ruleResult.toEscrow ?? ruleResult[9] ?? 0),
+//       toRecycle: formatUsdt(ruleResult.toRecycle ?? ruleResult[10] ?? 0),
+//       spillover1Recipient: ruleResult.spillover1Recipient ?? ruleResult[11] ?? ethers.ZeroAddress,
+//       spillover2Recipient: ruleResult.spillover2Recipient ?? ruleResult[12] ?? ethers.ZeroAddress,
+//     };
+//   }
+
+//   return {
+//     position: Number(ruleResult.position ?? ruleResult[0] ?? 0),
+//     line: Number(ruleResult.line ?? ruleResult[1] ?? 0),
+//     linePaymentNumber: Number(ruleResult.linePaymentNumber ?? ruleResult[2] ?? 0),
+//     autoUpgradeEnabled: Boolean(ruleResult.autoUpgradeEnabled ?? ruleResult[3] ?? false),
+//     isFounderNoReferrerPath: Boolean(ruleResult.isFounderNoReferrerPath ?? ruleResult[4] ?? false),
+//     hasStoredRuleData: false,
+//     toOwner: formatUsdt(ruleResult.toOwner ?? ruleResult[5] ?? 0),
+//     toSpillover1: formatUsdt(ruleResult.toSpillover1 ?? ruleResult[6] ?? 0),
+//     toSpillover2: formatUsdt(ruleResult.toSpillover2 ?? ruleResult[7] ?? 0),
+//     toEscrow: formatUsdt(ruleResult.toEscrow ?? ruleResult[8] ?? 0),
+//     toRecycle: formatUsdt(ruleResult.toRecycle ?? ruleResult[9] ?? 0),
+//     spillover1Recipient: ruleResult.spillover1Recipient ?? ruleResult[10] ?? ethers.ZeroAddress,
+//     spillover2Recipient: ruleResult.spillover2Recipient ?? ruleResult[11] ?? ethers.ZeroAddress,
+//   };
+// }
+
+// async function getOrbitContext(level) {
+//   validateLevel(level);
+
+//   const orbitType = levelToOrbitType[level];
+//   const contractKey = orbitTypeToContractKey[orbitType];
+//   const contracts = getContracts();
+
+//   if (!orbitType || !contractKey || !contracts[contractKey]) {
+//     const error = new Error(`Unsupported level: ${level}`);
+//     error.status = 400;
+//     throw error;
+//   }
+
+//   return {
+//     contracts,
+//     orbitType,
+//     orbitContract: contracts[contractKey],
+//     positionsCount: getOrbitPositionCount(orbitType),
+//   };
+// }
+
+// async function getLockedForNextLevel(contracts, address, level) {
+//   if (level >= 10) return 0n;
+
+//   if (typeof contracts.escrow.getLockedAmount === 'function') {
+//     return safeRpcCall(() => contracts.escrow.getLockedAmount(address, level, level + 1));
+//   }
+
+//   if (typeof contracts.escrow.lockedFunds === 'function') {
+//     return safeRpcCall(() => contracts.escrow.lockedFunds(address, level, level + 1));
+//   }
+
+//   return 0n;
+// }
+
+// async function tryCall(contract, methodNames, args) {
+//   for (const methodName of methodNames) {
+//     if (typeof contract?.[methodName] === 'function') {
+//       try {
+//         const result = await safeRpcCall(() => contract[methodName](...args));
+//         return { ok: true, methodName, result };
+//       } catch {
+//         // continue
+//       }
+//     }
+//   }
+
+//   return { ok: false, methodName: null, result: null };
+// }
+
+// function summarizeReceiptsForViewer(receipts, viewedAddress) {
+//   const totals = buildEmptyReceiptTotals();
+//   const viewer = buildEmptyViewerBreakdown();
+//   const lowerViewed = viewedAddress.toLowerCase();
+
+//   for (const receipt of receipts) {
+//     totals.count += 1;
+//     totals.gross = addBigIntStrings(totals.gross, receipt.grossAmount);
+//     totals.escrowLocked = addBigIntStrings(totals.escrowLocked, receipt.escrowLocked);
+//     totals.liquidPaid = addBigIntStrings(totals.liquidPaid, receipt.liquidPaid);
+
+//     const type = Number(receipt.receiptType || 0);
+
+//     if (type === RECEIPT_TYPES.FOUNDER_PATH) {
+//       totals.founderPathGross = addBigIntStrings(totals.founderPathGross, receipt.grossAmount);
+//     } else if (type === RECEIPT_TYPES.DIRECT_OWNER) {
+//       totals.directOwnerGross = addBigIntStrings(totals.directOwnerGross, receipt.grossAmount);
+//     } else if (type === RECEIPT_TYPES.ROUTED_SPILLOVER) {
+//       totals.routedSpilloverGross = addBigIntStrings(totals.routedSpilloverGross, receipt.grossAmount);
+//     } else if (type === RECEIPT_TYPES.RECYCLE) {
+//       totals.recycleGross = addBigIntStrings(totals.recycleGross, receipt.grossAmount);
+//     }
+
+//     if ((receipt.receiver || '').toLowerCase() !== lowerViewed) continue;
+
+//     viewer.count += 1;
+//     viewer.totalGross = addBigIntStrings(viewer.totalGross, receipt.grossAmount);
+//     viewer.totalLiquid = addBigIntStrings(viewer.totalLiquid, receipt.liquidPaid);
+//     viewer.totalEscrow = addBigIntStrings(viewer.totalEscrow, receipt.escrowLocked);
+
+//     if (type === RECEIPT_TYPES.FOUNDER_PATH) {
+//       viewer.founderPathGross = addBigIntStrings(viewer.founderPathGross, receipt.grossAmount);
+//       viewer.founderPathLiquid = addBigIntStrings(viewer.founderPathLiquid, receipt.liquidPaid);
+//       viewer.founderPathEscrow = addBigIntStrings(viewer.founderPathEscrow, receipt.escrowLocked);
+//     } else if (type === RECEIPT_TYPES.DIRECT_OWNER) {
+//       viewer.directOwnerGross = addBigIntStrings(viewer.directOwnerGross, receipt.grossAmount);
+//       viewer.directOwnerLiquid = addBigIntStrings(viewer.directOwnerLiquid, receipt.liquidPaid);
+//       viewer.directOwnerEscrow = addBigIntStrings(viewer.directOwnerEscrow, receipt.escrowLocked);
+//     } else if (type === RECEIPT_TYPES.ROUTED_SPILLOVER) {
+//       viewer.routedSpilloverGross = addBigIntStrings(viewer.routedSpilloverGross, receipt.grossAmount);
+//       viewer.routedSpilloverLiquid = addBigIntStrings(viewer.routedSpilloverLiquid, receipt.liquidPaid);
+//       viewer.routedSpilloverEscrow = addBigIntStrings(viewer.routedSpilloverEscrow, receipt.escrowLocked);
+//     } else if (type === RECEIPT_TYPES.RECYCLE) {
+//       viewer.recycleGross = addBigIntStrings(viewer.recycleGross, receipt.grossAmount);
+//       viewer.recycleLiquid = addBigIntStrings(viewer.recycleLiquid, receipt.liquidPaid);
+//       viewer.recycleEscrow = addBigIntStrings(viewer.recycleEscrow, receipt.escrowLocked);
+//     }
+//   }
+
+//   return {
+//     totals: {
+//       count: totals.count,
+//       gross: formatUsdt(totals.gross),
+//       escrowLocked: formatUsdt(totals.escrowLocked),
+//       liquidPaid: formatUsdt(totals.liquidPaid),
+//       founderPathGross: formatUsdt(totals.founderPathGross),
+//       directOwnerGross: formatUsdt(totals.directOwnerGross),
+//       routedSpilloverGross: formatUsdt(totals.routedSpilloverGross),
+//       recycleGross: formatUsdt(totals.recycleGross),
+//     },
+//     viewerBreakdown: {
+//       count: viewer.count,
+//       totalGross: formatUsdt(viewer.totalGross),
+//       totalLiquid: formatUsdt(viewer.totalLiquid),
+//       totalEscrow: formatUsdt(viewer.totalEscrow),
+//       founderPathGross: formatUsdt(viewer.founderPathGross),
+//       founderPathLiquid: formatUsdt(viewer.founderPathLiquid),
+//       founderPathEscrow: formatUsdt(viewer.founderPathEscrow),
+//       directOwnerGross: formatUsdt(viewer.directOwnerGross),
+//       directOwnerLiquid: formatUsdt(viewer.directOwnerLiquid),
+//       directOwnerEscrow: formatUsdt(viewer.directOwnerEscrow),
+//       routedSpilloverGross: formatUsdt(viewer.routedSpilloverGross),
+//       routedSpilloverLiquid: formatUsdt(viewer.routedSpilloverLiquid),
+//       routedSpilloverEscrow: formatUsdt(viewer.routedSpilloverEscrow),
+//       recycleGross: formatUsdt(viewer.recycleGross),
+//       recycleLiquid: formatUsdt(viewer.recycleLiquid),
+//       recycleEscrow: formatUsdt(viewer.recycleEscrow),
+//     },
+//     truthLabel: getTruthLabelFromReceipts(receipts),
+//   };
+// }
+
+// async function fetchIndexedReceiptsForActivation(activationId) {
+//   if (!activationId || Number(activationId) <= 0) return [];
+
+//   return IndexedReceipt.find({
+//     activationId: String(activationId),
+//   })
+//     .sort({ blockNumber: 1, logIndex: 1 })
+//     .lean();
+// }
+
+// async function fetchLiveRuleView(orbitContract, address, level, position) {
+//   const call = await tryCall(
+//     orbitContract,
+//     ['getPositionRuleView'],
+//     [address, level, position]
+//   );
+
+//   return call.ok ? normalizeRuleView(call.result) : null;
+// }
+
+// async function fetchHistoricalRuleView(orbitContract, address, level, cycleNumber, position) {
+//   const call = await tryCall(
+//     orbitContract,
+//     ['getHistoricalPositionRuleView'],
+//     [address, level, cycleNumber, position]
+//   );
+
+//   return call.ok ? normalizeRuleView(call.result) : null;
+// }
+
+// async function fetchLiveActivationData(orbitContract, address, level, position) {
+//   if (typeof orbitContract.getPositionActivationData !== 'function') {
+//     return {
+//       activationId: 0,
+//       activationCycleNumber: 0,
+//       isMirrorActivation: false,
+//     };
+//   }
+
+//   try {
+//     const result = await safeRpcCall(() =>
+//       orbitContract.getPositionActivationData(address, level, position)
+//     );
+
+//     return {
+//       activationId: Number(result?.activationId ?? result?.[0] ?? 0),
+//       activationCycleNumber: Number(result?.cycleNumber ?? result?.[1] ?? 0),
+//       isMirrorActivation: Boolean(result?.isMirror ?? result?.[2] ?? false),
+//     };
+//   } catch {
+//     return {
+//       activationId: 0,
+//       activationCycleNumber: 0,
+//       isMirrorActivation: false,
+//     };
+//   }
+// }
+
+// async function fetchHistoricalActivationData(orbitContract, address, level, cycleNumber, position) {
+//   if (typeof orbitContract.getHistoricalPositionActivationData !== 'function') {
+//     return {
+//       activationId: 0,
+//       activationCycleNumber: cycleNumber,
+//       isMirrorActivation: false,
+//     };
+//   }
+
+//   try {
+//     const result = await safeRpcCall(() =>
+//       orbitContract.getHistoricalPositionActivationData(
+//         address,
+//         level,
+//         cycleNumber,
+//         position
+//       )
+//     );
+
+//     return {
+//       activationId: Number(result?.activationId ?? result?.[0] ?? 0),
+//       activationCycleNumber: cycleNumber,
+//       isMirrorActivation: Boolean(result?.isMirror ?? result?.[1] ?? false),
+//     };
+//   } catch {
+//     return {
+//       activationId: 0,
+//       activationCycleNumber: cycleNumber,
+//       isMirrorActivation: false,
+//     };
+//   }
+// }
+
+// function shapeIndexedReceipts(receipts) {
+//   return receipts.map((receipt) => ({
+//     txHash: receipt.txHash,
+//     logIndex: receipt.logIndex,
+//     blockNumber: receipt.blockNumber,
+//     receiver: receipt.receiver,
+//     activationId: receipt.activationId,
+//     receiptType: receipt.receiptType,
+//     level: receipt.level,
+//     fromUser: receipt.fromUser,
+//     orbitOwner: receipt.orbitOwner,
+//     sourcePosition: receipt.sourcePosition,
+//     sourceCycle: receipt.sourceCycle,
+//     mirroredPosition: receipt.mirroredPosition,
+//     mirroredCycle: receipt.mirroredCycle,
+//     routedRole: receipt.routedRole,
+//     grossAmount: formatUsdt(receipt.grossAmount),
+//     escrowLocked: formatUsdt(receipt.escrowLocked),
+//     liquidPaid: formatUsdt(receipt.liquidPaid),
+//     timestamp: receipt.timestamp,
+//     rawEventName: receipt.rawEventName,
+//   }));
+// }
+
+// function findBestIndexedPositionFilledEvent(indexedEvents = []) {
+//   return indexedEvents.find((event) => event.eventName === 'PositionFilled') || null;
+// }
+
+// function findActivationIdFromIndexedReceipts(receipts = [], cycleNumber, positionNumber) {
+//   const match = receipts.find(
+//     (receipt) =>
+//       Number(receipt.sourceCycle || 0) === Number(cycleNumber) &&
+//       Number(receipt.sourcePosition || 0) === Number(positionNumber) &&
+//       Number(receipt.activationId || 0) > 0
+//   );
+
+//   return match ? Number(match.activationId) : 0;
+// }
+
+// async function fetchIndexedReceiptsForHistoricalPosition(orbitOwner, level, cycleNumber, positionNumber) {
+//   return IndexedReceipt.find({
+//     orbitOwner: orbitOwner.toLowerCase(),
+//     level,
+//     sourceCycle: Number(cycleNumber),
+//     sourcePosition: Number(positionNumber),
+//   })
+//     .sort({ blockNumber: 1, logIndex: 1 })
+//     .lean();
+// }
+
+// async function getIndexedOrbitEventsGrouped(orbitOwner, level) {
+//   const docs = await IndexedOrbitEvent.find({
+//     orbitOwner: orbitOwner.toLowerCase(),
+//     level,
+//   })
+//     .sort({ blockNumber: 1, logIndex: 1 })
+//     .lean();
+
+//   const byPosition = new Map();
+
+//   for (const doc of docs) {
+//     const pos = Number(doc.position || 0);
+//     if (!byPosition.has(pos)) {
+//       byPosition.set(pos, []);
+//     }
+//     byPosition.get(pos).push(doc);
+//   }
+
+//   return byPosition;
+// }
+
+// async function buildLivePositionSnapshot(address, level, positionNumber, preloaded = {}) {
+//   const normalizedAddress = normalizeAddress(address);
+//   const { orbitType, orbitContract } = await getOrbitContext(level);
+
+//   const [position, activationData, ruleView] = await Promise.all([
+//     safeRpcCall(() => orbitContract.getPosition(normalizedAddress, level, positionNumber)).catch(() => null),
+//     fetchLiveActivationData(orbitContract, normalizedAddress, level, positionNumber),
+//     fetchLiveRuleView(orbitContract, normalizedAddress, level, positionNumber),
+//   ]);
+
+//   const indexedEvents = preloaded.indexedEventsByPosition?.get(positionNumber) || [];
+//   const occupant = position?.[0] && position[0] !== ethers.ZeroAddress ? position[0] : null;
+//   const indexedReceipts = await fetchIndexedReceiptsForActivation(activationData.activationId);
+//   const receiptSummary = summarizeReceiptsForViewer(indexedReceipts, normalizedAddress);
+
+//   return {
+//     number: positionNumber,
+//     level,
+//     orbitType,
+//     line: getLineForPosition(orbitType, positionNumber),
+//     parentPosition: getStructuralParentPosition(orbitType, positionNumber),
+//     occupant,
+//     amount: occupant ? formatUsdt(position?.[1]) : '0.0',
+//     timestamp: Number(position?.[2] ?? 0),
+//     activationId: activationData.activationId,
+//     activationCycleNumber: activationData.activationCycleNumber,
+//     isMirrorActivation: activationData.isMirrorActivation,
+//     truthLabel: receiptSummary.truthLabel,
+//     indexedEventCount: indexedEvents.length,
+//     indexedReceiptCount: indexedReceipts.length,
+//     receiptTotals: receiptSummary.totals,
+//     viewerReceiptBreakdown: receiptSummary.viewerBreakdown,
+//     indexedReceipts: shapeIndexedReceipts(indexedReceipts),
+//     indexedEvents,
+//     ruleView,
+//   };
+// }
+
+// async function buildHistoricalPositionSnapshot(address, level, cycleNumber, positionNumber, preloaded = {}) {
+//   const normalizedAddress = normalizeAddress(address);
+//   const { orbitType, orbitContract } = await getOrbitContext(level);
+
+//   const indexedEvents = preloaded.indexedEventsByPosition?.get(positionNumber) || [];
+
+//   const indexedReceiptsForPosition = await fetchIndexedReceiptsForHistoricalPosition(
+//     normalizedAddress,
+//     level,
+//     cycleNumber,
+//     positionNumber
+//   );
+
+//   const historicalPositionCall = await tryCall(
+//     orbitContract,
+//     ['getHistoricalPosition', 'getCyclePosition', 'getStoredCyclePosition', 'getArchivedPosition'],
+//     [normalizedAddress, level, cycleNumber, positionNumber]
+//   );
+
+//   if (!historicalPositionCall.ok) {
+//     const error = new Error('Historical position getter not supported by this orbit contract');
+//     error.status = 400;
+//     throw error;
+//   }
+
+//   const position = historicalPositionCall.result || [];
+//   let occupant = position?.[0] && position[0] !== ethers.ZeroAddress ? position[0] : null;
+//   let amount = occupant ? formatUsdt(position?.[1]) : '0.0';
+//   let timestamp = Number(position?.[2] ?? 0);
+
+//   const [activationDataRaw, ruleView] = await Promise.all([
+//     fetchHistoricalActivationData(orbitContract, normalizedAddress, level, cycleNumber, positionNumber),
+//     fetchHistoricalRuleView(orbitContract, normalizedAddress, level, cycleNumber, positionNumber),
+//   ]);
+
+//   let activationId = Number(activationDataRaw.activationId || 0);
+//   let activationCycleNumber = Number(activationDataRaw.activationCycleNumber || cycleNumber);
+//   let isMirrorActivation = Boolean(activationDataRaw.isMirrorActivation || false);
+
+//   const bestIndexedPositionFilled = findBestIndexedPositionFilledEvent(indexedEvents);
+
+//   if (!occupant && bestIndexedPositionFilled) {
+//     occupant = bestIndexedPositionFilled.user || null;
+
+//     if (bestIndexedPositionFilled.amount) {
+//       amount = formatUsdt(bestIndexedPositionFilled.amount);
+//     }
+
+//     if (bestIndexedPositionFilled.timestamp) {
+//       timestamp = Math.floor(new Date(bestIndexedPositionFilled.timestamp).getTime() / 1000);
+//     }
+//   }
+
+//   if (!activationId && indexedReceiptsForPosition.length > 0) {
+//     activationId = findActivationIdFromIndexedReceipts(
+//       indexedReceiptsForPosition,
+//       cycleNumber,
+//       positionNumber
+//     );
+//   }
+
+//   const indexedReceipts =
+//     activationId > 0
+//       ? await fetchIndexedReceiptsForActivation(activationId)
+//       : indexedReceiptsForPosition;
+
+//   const receiptSummary = summarizeReceiptsForViewer(indexedReceipts, normalizedAddress);
+
+//   let truthLabel = receiptSummary.truthLabel;
+//   if (truthLabel === 'NO_RECEIPT' && bestIndexedPositionFilled && occupant) {
+//     truthLabel = 'UNKNOWN';
+//   }
+
+//   return {
+//     number: positionNumber,
+//     level,
+//     cycleNumber,
+//     orbitType,
+//     line: getLineForPosition(orbitType, positionNumber),
+//     parentPosition: getStructuralParentPosition(orbitType, positionNumber),
+//     occupant,
+//     amount,
+//     timestamp,
+//     activationId,
+//     activationCycleNumber,
+//     isMirrorActivation,
+//     truthLabel,
+//     indexedEventCount: indexedEvents.length,
+//     indexedReceiptCount: indexedReceipts.length,
+//     receiptTotals: {
+//       ...receiptSummary.totals,
+//     },
+//     viewerReceiptBreakdown: {
+//       ...receiptSummary.viewerBreakdown,
+//     },
+//     indexedReceipts: shapeIndexedReceipts(indexedReceipts),
+//     indexedEvents,
+//     ruleView,
+//   };
+// }
+
+// export async function fetchOrbitLevels(address) {
+//   const normalizedAddress = normalizeAddress(address);
+//   const cacheKey = `orbit-levels:${normalizedAddress.toLowerCase()}`;
+
+//   return cached(cacheKey, async () => {
+//     const contracts = getContracts();
+
+//     const levels = await mapWithConcurrency(
+//       Array.from({ length: 10 }, (_, index) => index + 1),
+//       1,
+//       async (level) => {
+//         const isActive = await safeRpcCall(() =>
+//           contracts.registration.isLevelActivated(normalizedAddress, level)
+//         ).catch(() => false);
+
+//         return {
+//           level,
+//           orbitType: levelToOrbitType[level],
+//           isActive: Boolean(isActive),
+//         };
+//       }
+//     );
+
+//     const activeLevels = levels.filter((item) => item.isActive).map((item) => item.level);
+//     const highestActiveLevel = activeLevels.length ? Math.max(...activeLevels) : 0;
+
+//     return {
+//       address: normalizedAddress,
+//       levels,
+//       highestActiveLevel,
+//     };
+//   });
+// }
+
+// // export async function fetchOrbitLevelSnapshot(address, level) {
+// //   const normalizedAddress = normalizeAddress(address);
+// //   validateLevel(level);
+
+// //   const orbitType = levelToOrbitType[level];
+
+// //   let snapshot = await OrbitLevelSnapshot.findOne({
+// //     address: normalizedAddress,
+// //     level,
+// //   }).lean();
+
+// //   if (!snapshot) {
+// //     await buildOrbitLevelSnapshot(normalizedAddress, level);
+
+// //     snapshot = await OrbitLevelSnapshot.findOne({
+// //       address: normalizedAddress,
+// //       level,
+// //     }).lean();
+// //   }
+
+// //   return {
+// //     address: normalizedAddress,
+// //     level,
+// //     orbitType,
+
+// //     isLevelActive: snapshot.isLevelActive || false,
+
+// //     orbitSummary: snapshot.orbitSummary || {},
+// //     linePaymentCounts: snapshot.linePaymentCounts || {},
+// //     lockedForNextLevel: snapshot.lockedForNextLevel || '0',
+
+// //     positions: snapshot.positions || [],
+// //   };
+// // }
+
 
 // export async function fetchOrbitLevelSnapshot(address, level) {
 //   const normalizedAddress = normalizeAddress(address);
 //   validateLevel(level);
 
 //   const orbitType = levelToOrbitType[level];
+//   const cacheKey = `orbit-level-snapshot:${normalizedAddress}:${level}`;
 
-//   let snapshot = await OrbitLevelSnapshot.findOne({
-//     address: normalizedAddress,
-//     level,
-//   }).lean();
-
-//   if (!snapshot) {
-//     await buildOrbitLevelSnapshot(normalizedAddress, level);
-
-//     snapshot = await OrbitLevelSnapshot.findOne({
+//   return cached(cacheKey, async () => {
+//     let snapshot = await OrbitLevelSnapshot.findOne({
 //       address: normalizedAddress,
 //       level,
 //     }).lean();
-//   }
 
-//   return {
-//     address: normalizedAddress,
-//     level,
-//     orbitType,
+//     const needsRefresh =
+//       !snapshot ||
+//       !snapshot.metadata?.completeness?.positionsReady ||
+//       !snapshot.metadata?.completeness?.summaryReady ||
+//       isSnapshotStale(snapshot, LEVEL_SNAPSHOT_TTL_MS);
 
-//     isLevelActive: snapshot.isLevelActive || false,
+//     if (needsRefresh) {
+//       snapshot = await rebuildAndEnrichLevelSnapshot(normalizedAddress, level);
+//     }
 
-//     orbitSummary: snapshot.orbitSummary || {},
-//     linePaymentCounts: snapshot.linePaymentCounts || {},
-//     lockedForNextLevel: snapshot.lockedForNextLevel || '0',
+//     if (!snapshot) {
+//       const error = new Error('Failed to build orbit level snapshot');
+//       error.status = 500;
+//       throw error;
+//     }
 
-//     positions: snapshot.positions || [],
-//   };
+//     const totalCycles = Number(snapshot?.orbitSummary?.totalCycles || 0);
+
+//     // 🔥 CRITICAL FIX — GUARANTEE ALL CYCLES EXIST
+//     if (totalCycles > 0) {
+//       const buildTasks = [];
+
+//       for (let cycleNumber = 1; cycleNumber <= totalCycles; cycleNumber++) {
+//         buildTasks.push(
+//           buildOrbitCycleSnapshot(normalizedAddress, level, cycleNumber).catch((err) => {
+//             console.error(
+//               `Cycle build failed (${normalizedAddress}, L${level}, C${cycleNumber})`,
+//               err
+//             );
+//           })
+//         );
+//       }
+
+//       // controlled concurrency (no overload)
+//       const chunkSize = 3;
+//       for (let i = 0; i < buildTasks.length; i += chunkSize) {
+//         await Promise.all(buildTasks.slice(i, i + chunkSize));
+//       }
+//     }
+
+//     return {
+//       address: normalizedAddress,
+//       level,
+//       orbitType,
+//       isLevelActive: snapshot.isLevelActive || false,
+//       orbitSummary: snapshot.orbitSummary || {},
+//       linePaymentCounts: snapshot.linePaymentCounts || {},
+//       lockedForNextLevel: snapshot.lockedForNextLevel || '0',
+//       positions: snapshot.positions || [],
+//     };
+//   }, 5000);
 // }
 
 
-export async function fetchOrbitLevelSnapshot(address, level) {
-  const normalizedAddress = normalizeAddress(address);
-  validateLevel(level);
-
-  const orbitType = levelToOrbitType[level];
-  const cacheKey = `orbit-level-snapshot:${normalizedAddress}:${level}`;
-
-  return cached(cacheKey, async () => {
-    let snapshot = await OrbitLevelSnapshot.findOne({
-      address: normalizedAddress,
-      level,
-    }).lean();
-
-    const needsRefresh =
-      !snapshot ||
-      !snapshot.metadata?.completeness?.positionsReady ||
-      !snapshot.metadata?.completeness?.summaryReady ||
-      isSnapshotStale(snapshot, LEVEL_SNAPSHOT_TTL_MS);
-
-    if (needsRefresh) {
-      snapshot = await rebuildAndEnrichLevelSnapshot(normalizedAddress, level);
-    }
-
-    if (!snapshot) {
-      const error = new Error('Failed to build orbit level snapshot');
-      error.status = 500;
-      throw error;
-    }
-
-    const totalCycles = Number(snapshot?.orbitSummary?.totalCycles || 0);
-
-    // 🔥 CRITICAL FIX — GUARANTEE ALL CYCLES EXIST
-    if (totalCycles > 0) {
-      const buildTasks = [];
-
-      for (let cycleNumber = 1; cycleNumber <= totalCycles; cycleNumber++) {
-        buildTasks.push(
-          buildOrbitCycleSnapshot(normalizedAddress, level, cycleNumber).catch((err) => {
-            console.error(
-              `Cycle build failed (${normalizedAddress}, L${level}, C${cycleNumber})`,
-              err
-            );
-          })
-        );
-      }
-
-      // controlled concurrency (no overload)
-      const chunkSize = 3;
-      for (let i = 0; i < buildTasks.length; i += chunkSize) {
-        await Promise.all(buildTasks.slice(i, i + chunkSize));
-      }
-    }
-
-    return {
-      address: normalizedAddress,
-      level,
-      orbitType,
-      isLevelActive: snapshot.isLevelActive || false,
-      orbitSummary: snapshot.orbitSummary || {},
-      linePaymentCounts: snapshot.linePaymentCounts || {},
-      lockedForNextLevel: snapshot.lockedForNextLevel || '0',
-      positions: snapshot.positions || [],
-    };
-  }, 5000);
-}
 
 
+// // export async function fetchOrbitPositionDetails(address, level, position) {
+// //   const { orbitType, positionsCount } = await getOrbitContext(level);
+// //   validatePosition(position, positionsCount);
+
+// //   const normalizedAddress = normalizeAddress(address);
+// //   const cacheKey = `orbit-position-details:${normalizedAddress.toLowerCase()}:${level}:${position}`;
+
+// //   return cached(cacheKey, async () => {
+// //     let snapshot = await OrbitPositionSnapshot.findOne({
+// //       address: normalizedAddress,
+// //       level,
+// //       position,
+// //     }).lean();
+
+// //     if (!snapshot) {
+// //       snapshot = await buildOrbitPositionSnapshot(normalizedAddress, level, position);
+// //     }
+
+// //     return {
+// //       address: normalizedAddress,
+// //       level,
+// //       position,
+// //       orbitType,
+// //       number: snapshot.position,
+// //       line: snapshot.line,
+// //       parentPosition: snapshot.parentPosition,
+// //       occupant: snapshot.occupant,
+// //       amount: snapshot.amount,
+// //       timestamp: snapshot.timestamp,
+// //       activationId: snapshot.activationId,
+// //       activationCycleNumber: snapshot.activationCycleNumber,
+// //       isMirrorActivation: snapshot.isMirrorActivation,
+// //       truthLabel: snapshot.truthLabel,
+// //       indexedEventCount: snapshot.indexedEventCount,
+// //       indexedReceiptCount: snapshot.indexedReceiptCount,
+// //       receiptTotals: snapshot.receiptTotals,
+// //       viewerReceiptBreakdown: snapshot.viewerReceiptBreakdown,
+// //       indexedReceipts: snapshot.indexedReceipts || [],
+// //       indexedEvents: snapshot.indexedEvents || [],
+// //       ruleView: snapshot.ruleView || null,
+// //     };
+// //   }, 15000);
+// // }
 
 
 // export async function fetchOrbitPositionDetails(address, level, position) {
@@ -935,7 +980,7 @@ export async function fetchOrbitLevelSnapshot(address, level) {
 //   validatePosition(position, positionsCount);
 
 //   const normalizedAddress = normalizeAddress(address);
-//   const cacheKey = `orbit-position-details:${normalizedAddress.toLowerCase()}:${level}:${position}`;
+//   const cacheKey = `orbit-position-details:${normalizedAddress}:${level}:${position}`;
 
 //   return cached(cacheKey, async () => {
 //     let snapshot = await OrbitPositionSnapshot.findOne({
@@ -944,8 +989,24 @@ export async function fetchOrbitLevelSnapshot(address, level) {
 //       position,
 //     }).lean();
 
+//     const needsRefresh =
+//       !snapshot ||
+//       !snapshot.metadata?.completeness?.receiptsReady ||
+//       !snapshot.metadata?.completeness?.eventsReady ||
+//       isSnapshotStale(snapshot, POSITION_SNAPSHOT_TTL_MS);
+
+//     if (needsRefresh) {
+//       snapshot = await buildOrbitPositionSnapshot(
+//         normalizedAddress,
+//         level,
+//         position
+//       );
+//     }
+
 //     if (!snapshot) {
-//       snapshot = await buildOrbitPositionSnapshot(normalizedAddress, level, position);
+//       const error = new Error('Failed to build orbit position snapshot');
+//       error.status = 500;
+//       throw error;
 //     }
 
 //     return {
@@ -971,78 +1032,47 @@ export async function fetchOrbitLevelSnapshot(address, level) {
 //       indexedEvents: snapshot.indexedEvents || [],
 //       ruleView: snapshot.ruleView || null,
 //     };
-//   }, 15000);
+//   }, 5000);
 // }
 
 
-export async function fetchOrbitPositionDetails(address, level, position) {
-  const { orbitType, positionsCount } = await getOrbitContext(level);
-  validatePosition(position, positionsCount);
 
-  const normalizedAddress = normalizeAddress(address);
-  const cacheKey = `orbit-position-details:${normalizedAddress}:${level}:${position}`;
+// // export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
+// //   const normalizedAddress = normalizeAddress(address);
+// //   validateLevel(level);
+// //   validateCycleNumber(cycleNumber);
 
-  return cached(cacheKey, async () => {
-    let snapshot = await OrbitPositionSnapshot.findOne({
-      address: normalizedAddress,
-      level,
-      position,
-    }).lean();
+// //   const cacheKey = `orbit-cycle-snapshot:${normalizedAddress.toLowerCase()}:${level}:${cycleNumber}`;
 
-    const needsRefresh =
-      !snapshot ||
-      !snapshot.metadata?.completeness?.receiptsReady ||
-      !snapshot.metadata?.completeness?.eventsReady ||
-      isSnapshotStale(snapshot, POSITION_SNAPSHOT_TTL_MS);
+// //   return cached(cacheKey, async () => {
+// //     let snapshot = await OrbitCycleSnapshot.findOne({
+// //       address: normalizedAddress,
+// //       level,
+// //       cycleNumber,
+// //     }).lean();
 
-    if (needsRefresh) {
-      snapshot = await buildOrbitPositionSnapshot(
-        normalizedAddress,
-        level,
-        position
-      );
-    }
+// //     if (!snapshot) {
+// //       snapshot = await buildOrbitCycleSnapshot(normalizedAddress, level, cycleNumber);
+// //     }
 
-    if (!snapshot) {
-      const error = new Error('Failed to build orbit position snapshot');
-      error.status = 500;
-      throw error;
-    }
-
-    return {
-      address: normalizedAddress,
-      level,
-      position,
-      orbitType,
-      number: snapshot.position,
-      line: snapshot.line,
-      parentPosition: snapshot.parentPosition,
-      occupant: snapshot.occupant,
-      amount: snapshot.amount,
-      timestamp: snapshot.timestamp,
-      activationId: snapshot.activationId,
-      activationCycleNumber: snapshot.activationCycleNumber,
-      isMirrorActivation: snapshot.isMirrorActivation,
-      truthLabel: snapshot.truthLabel,
-      indexedEventCount: snapshot.indexedEventCount,
-      indexedReceiptCount: snapshot.indexedReceiptCount,
-      receiptTotals: snapshot.receiptTotals,
-      viewerReceiptBreakdown: snapshot.viewerReceiptBreakdown,
-      indexedReceipts: snapshot.indexedReceipts || [],
-      indexedEvents: snapshot.indexedEvents || [],
-      ruleView: snapshot.ruleView || null,
-    };
-  }, 5000);
-}
-
-
+// //     return {
+// //       address: normalizedAddress,
+// //       level,
+// //       cycleNumber,
+// //       orbitType: snapshot.orbitType,
+// //       filledPositions: snapshot.filledPositions,
+// //       totalPositions: snapshot.totalPositions,
+// //       positions: snapshot.positions || [],
+// //     };
+// //   }, 20000);
+// // }
 
 // export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
 //   const normalizedAddress = normalizeAddress(address);
 //   validateLevel(level);
 //   validateCycleNumber(cycleNumber);
 
-//   const cacheKey = `orbit-cycle-snapshot:${normalizedAddress.toLowerCase()}:${level}:${cycleNumber}`;
+//   const cacheKey = `orbit-cycle-snapshot:${normalizedAddress}:${level}:${cycleNumber}`;
 
 //   return cached(cacheKey, async () => {
 //     let snapshot = await OrbitCycleSnapshot.findOne({
@@ -1051,8 +1081,24 @@ export async function fetchOrbitPositionDetails(address, level, position) {
 //       cycleNumber,
 //     }).lean();
 
+//     const needsRefresh =
+//       !snapshot ||
+//       !snapshot.metadata?.completeness?.positionsReady ||
+//       !snapshot.metadata?.completeness?.historicalReady ||
+//       isSnapshotStale(snapshot, CYCLE_SNAPSHOT_TTL_MS);
+
+//     if (needsRefresh) {
+//       snapshot = await buildOrbitCycleSnapshot(
+//         normalizedAddress,
+//         level,
+//         cycleNumber
+//       );
+//     }
+
 //     if (!snapshot) {
-//       snapshot = await buildOrbitCycleSnapshot(normalizedAddress, level, cycleNumber);
+//       const error = new Error('Failed to build orbit cycle snapshot');
+//       error.status = 500;
+//       throw error;
 //     }
 
 //     return {
@@ -1064,51 +1110,5 @@ export async function fetchOrbitPositionDetails(address, level, position) {
 //       totalPositions: snapshot.totalPositions,
 //       positions: snapshot.positions || [],
 //     };
-//   }, 20000);
+//   }, 10000);
 // }
-
-export async function fetchOrbitCycleSnapshot(address, level, cycleNumber) {
-  const normalizedAddress = normalizeAddress(address);
-  validateLevel(level);
-  validateCycleNumber(cycleNumber);
-
-  const cacheKey = `orbit-cycle-snapshot:${normalizedAddress}:${level}:${cycleNumber}`;
-
-  return cached(cacheKey, async () => {
-    let snapshot = await OrbitCycleSnapshot.findOne({
-      address: normalizedAddress,
-      level,
-      cycleNumber,
-    }).lean();
-
-    const needsRefresh =
-      !snapshot ||
-      !snapshot.metadata?.completeness?.positionsReady ||
-      !snapshot.metadata?.completeness?.historicalReady ||
-      isSnapshotStale(snapshot, CYCLE_SNAPSHOT_TTL_MS);
-
-    if (needsRefresh) {
-      snapshot = await buildOrbitCycleSnapshot(
-        normalizedAddress,
-        level,
-        cycleNumber
-      );
-    }
-
-    if (!snapshot) {
-      const error = new Error('Failed to build orbit cycle snapshot');
-      error.status = 500;
-      throw error;
-    }
-
-    return {
-      address: normalizedAddress,
-      level,
-      cycleNumber,
-      orbitType: snapshot.orbitType,
-      filledPositions: snapshot.filledPositions,
-      totalPositions: snapshot.totalPositions,
-      positions: snapshot.positions || [],
-    };
-  }, 10000);
-}
