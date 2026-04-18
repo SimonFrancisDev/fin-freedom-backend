@@ -67,7 +67,7 @@ const targetBackoffUntil = new Map();
 const cycleTracker = new Map();
 
 const LIVE_TAIL_ENABLED = true;
-const LIVE_TAIL_WINDOW_BLOCKS = 12;
+const LIVE_TAIL_WINDOW_BLOCKS = 120;
 const LIVE_TAIL_TARGET_KEYS = new Set([
   'registration',
   'levelManager',

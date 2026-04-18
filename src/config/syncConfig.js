@@ -33,7 +33,7 @@ export function getSyncConfig() {
   return {
     confirmations: Math.max(0, env.SYNC_CONFIRMATIONS),
     chunkSize: Math.max(1, env.SYNC_BLOCK_CHUNK_SIZE),
-    pollIntervalMs: Math.max(5000, env.SYNC_POLL_INTERVAL_MS),
+    pollIntervalMs: Math.max(500, env.SYNC_POLL_INTERVAL_MS),
   };
 }
 
