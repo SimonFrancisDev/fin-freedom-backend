@@ -825,41 +825,6 @@ export async function fetchOrbitLevels(address) {
   });
 }
 
-// export async function fetchOrbitLevelSnapshot(address, level) {
-//   const normalizedAddress = normalizeAddress(address);
-//   validateLevel(level);
-
-//   const orbitType = levelToOrbitType[level];
-
-//   let snapshot = await OrbitLevelSnapshot.findOne({
-//     address: normalizedAddress,
-//     level,
-//   }).lean();
-
-//   if (!snapshot) {
-//     await buildOrbitLevelSnapshot(normalizedAddress, level);
-
-//     snapshot = await OrbitLevelSnapshot.findOne({
-//       address: normalizedAddress,
-//       level,
-//     }).lean();
-//   }
-
-//   return {
-//     address: normalizedAddress,
-//     level,
-//     orbitType,
-
-//     isLevelActive: snapshot.isLevelActive || false,
-
-//     orbitSummary: snapshot.orbitSummary || {},
-//     linePaymentCounts: snapshot.linePaymentCounts || {},
-//     lockedForNextLevel: snapshot.lockedForNextLevel || '0',
-
-//     positions: snapshot.positions || [],
-//   };
-// }
-
 
 export async function fetchOrbitLevelSnapshot(address, level) {
   const normalizedAddress = normalizeAddress(address);

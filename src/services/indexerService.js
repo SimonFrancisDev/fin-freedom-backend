@@ -61,6 +61,7 @@ function stringifyBigInt(value) {
 
 const blockCache = new Map();
 const targetBackoffUntil = new Map();
+const cycleTracker = new Map();
 
 const LIVE_TAIL_ENABLED = true;
 const LIVE_TAIL_WINDOW_BLOCKS = 12;
@@ -142,6 +143,28 @@ async function getOrCreateSyncState(key, fallbackStartBlock) {
   return state;
 }
 
+async function getCurrentCycleForOrbit(orbitType, orbitOwner, level) {
+  const key = `${orbitType}-${orbitOwner}-${level}`;
+
+  if (cycleTracker.has(key)) {
+    return cycleTracker.get(key);
+  }
+
+  const lastReset = await IndexedOrbitEvent.findOne({
+    orbitType,
+    orbitOwner,
+    level,
+    eventName: 'OrbitReset',
+  })
+    .sort({ blockNumber: -1, logIndex: -1 })
+    .lean();
+
+  const currentCycle = lastReset ? Number(lastReset.cycleNumber || 0) + 1 : 1;
+
+  cycleTracker.set(key, currentCycle);
+  return currentCycle;
+}
+
 async function saveReceiptLog(chainId, log, parsed, block) {
   const args = parsed.args;
 
@@ -220,65 +243,76 @@ async function saveOrbitLog(chainId, orbitType, contractAddress, log, parsed, bl
   let linePaymentNumber = 0;
 
   switch (eventName) {
-    case 'PositionFilled':
+    case 'PositionFilled': {
       orbitOwner = toLower(args.orbitOwner ?? args[0] ?? '');
       user = toLower(args.user ?? args[1] ?? '');
       level = Number(args.level ?? args[2] ?? 0);
       position = Number(args.position ?? args[3] ?? 0);
       amount = stringifyBigInt(args.amount ?? args[4] ?? 0);
+
+      cycleNumber = await getCurrentCycleForOrbit(orbitType, orbitOwner, level);
       break;
-
-   case 'OrbitReset': {
-    orbitOwner = toLower(args.user ?? '');
-    level = Number(args.level ?? 0);
-    cycleNumber = Number(args.cycleNumber ?? 0);
-
-    if (!orbitOwner) {
-      console.warn('OrbitReset missing user field:', {
-        txHash: log.transactionHash,
-        logIndex: log.index,
-        eventName,
-        args,
-      });
-      return;
-    }
-
-    break;
   }
 
+   case 'OrbitReset': {
+        orbitOwner = toLower(args.user ?? '');
+        level = Number(args.level ?? 0);
+        cycleNumber = Number(args.cycleNumber ?? 0);
+
+        if (!orbitOwner) {
+          console.warn('OrbitReset missing user field:', {
+            txHash: log.transactionHash,
+            logIndex: log.index,
+            eventName,
+            args,
+          });
+          return;
+        }
+
+        const key = `${orbitType}-${orbitOwner}-${level}`;
+        cycleTracker.set(key, cycleNumber + 1);
+
+        break;
+      }
+
     case 'LinePaymentTracked':
-      orbitOwner = toLower(args.orbitOwner ?? args[0] ?? '');
-      level = Number(args.level ?? args[1] ?? 0);
-      line = Number(args.line ?? args[2] ?? 0);
-      linePaymentNumber = Number(args.linePaymentNumber ?? args[3] ?? 0);
-      position = Number(args.position ?? args[4] ?? 0);
-      break;
+    orbitOwner = toLower(args.orbitOwner ?? args[0] ?? '');
+    level = Number(args.level ?? args[1] ?? 0);
+    line = Number(args.line ?? args[2] ?? 0);
+    linePaymentNumber = Number(args.linePaymentNumber ?? args[3] ?? 0);
+    position = Number(args.position ?? args[4] ?? 0);
+    cycleNumber = await getCurrentCycleForOrbit(orbitType, orbitOwner, level);
+    break;
 
     case 'PaymentRuleApplied':
-      orbitOwner = toLower(args.orbitOwner ?? args[0] ?? '');
-      level = Number(args.level ?? args[1] ?? 0);
-      position = Number(args.position ?? args[2] ?? 0);
-      line = Number(args.line ?? args[3] ?? 0);
-      linePaymentNumber = Number(args.linePaymentNumber ?? args[4] ?? 0);
-      break;
+    orbitOwner = toLower(args.orbitOwner ?? args[0] ?? '');
+    level = Number(args.level ?? args[1] ?? 0);
+    position = Number(args.position ?? args[2] ?? 0);
+    line = Number(args.line ?? args[3] ?? 0);
+    linePaymentNumber = Number(args.linePaymentNumber ?? args[4] ?? 0);
+    cycleNumber = await getCurrentCycleForOrbit(orbitType, orbitOwner, level);
+    break;
 
     case 'EscrowUpdated':
-      orbitOwner = toLower(args.orbitOwner ?? args.user ?? args[0] ?? '');
-      level = Number(args.level ?? args[1] ?? 0);
-      break;
+    orbitOwner = toLower(args.orbitOwner ?? args.user ?? args[0] ?? '');
+    level = Number(args.level ?? args[1] ?? 0);
+    cycleNumber = await getCurrentCycleForOrbit(orbitType, orbitOwner, level);
+    break;
 
     case 'AutoUpgradeTriggered':
-      orbitOwner = toLower(args.user ?? args[0] ?? '');
-      level = Number(args.fromLevel ?? args.level ?? args[1] ?? 0);
-      amount = stringifyBigInt(args.amount ?? args[3] ?? 0);
-      break;
+    orbitOwner = toLower(args.user ?? args[0] ?? '');
+    level = Number(args.fromLevel ?? args.level ?? args[1] ?? 0);
+    amount = stringifyBigInt(args.amount ?? args[3] ?? 0);
+    cycleNumber = await getCurrentCycleForOrbit(orbitType, orbitOwner, level);
+    break;
 
     case 'SpilloverPaid':
-      orbitOwner = toLower(args.orbitOwner ?? args.from ?? args[0] ?? '');
-      user = toLower(args.to ?? args.user ?? args[1] ?? '');
-      level = Number(args.level ?? args[2] ?? 0);
-      amount = stringifyBigInt(args.amount ?? args[3] ?? 0);
-      break;
+    orbitOwner = toLower(args.orbitOwner ?? args.from ?? args[0] ?? '');
+    user = toLower(args.to ?? args.user ?? args[1] ?? '');
+    level = Number(args.level ?? args[2] ?? 0);
+    amount = stringifyBigInt(args.amount ?? args[3] ?? 0);
+    cycleNumber = await getCurrentCycleForOrbit(orbitType, orbitOwner, level);
+    break;
 
     default:
       return;

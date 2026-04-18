@@ -134,9 +134,7 @@ export async function enrichOrbitLevelSnapshot(address, level) {
     );
   }
 
-  // orbitContract.getUserOrbit
-  // IMPORTANT:
-  // We only enrich fields that do not change current/history structure.
+ 
   try {
     const orbitSummaryRaw = await safeRpcCall(() =>
       orbitContract.getUserOrbit(normalizedAddress, level)
@@ -151,13 +149,6 @@ export async function enrichOrbitLevelSnapshot(address, level) {
         orbitSummaryRaw?.autoUpgradeCompleted || false
       ),
       totalEarned: formatUsdt(orbitSummaryRaw?.totalEarned || '0'),
-
-      // DO NOT overwrite:
-      // currentPosition
-      // positionsInLine1
-      // positionsInLine2
-      // positionsInLine3
-      // totalCycles
     };
   } catch (error) {
     console.error(
@@ -166,8 +157,7 @@ export async function enrichOrbitLevelSnapshot(address, level) {
     );
   }
 
-  // orbitContract.getLinePaymentCounts
-  // Keep DB truth if this fails.
+ 
   try {
     const lineCountsRaw = await safeRpcCall(() =>
       orbitContract.getLinePaymentCounts(normalizedAddress, level)

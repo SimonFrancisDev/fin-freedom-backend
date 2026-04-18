@@ -379,46 +379,7 @@ function isWithinCycleBoundary(item, boundary) {
   return afterPrevious && beforeCurrent;
 }
 
-function buildFallbackCycleFromFillChunks({
-  allIndexedEvents,
-  totalPositions,
-  cycleNumber,
-}) {
-  const fillEvents = sortByChainPoint(
-    allIndexedEvents.filter((event) => event.eventName === 'PositionFilled')
-  );
 
-  const start = (cycleNumber - 1) * totalPositions;
-  const end = start + totalPositions;
-  const fillChunk = fillEvents.slice(start, end);
-
-  if (fillChunk.length === 0) {
-    return [];
-  }
-
-  const txHashes = new Set(
-    fillChunk.map((event) => String(event.txHash || '').toLowerCase()).filter(Boolean)
-  );
-
-  const chunkEvents = allIndexedEvents.filter((event) => {
-    if (event.eventName === 'OrbitReset') return false;
-    const txHash = String(event.txHash || '').toLowerCase();
-    return txHashes.has(txHash);
-  });
-
-  const fillIds = new Set(
-    fillChunk.map((event) => `${String(event.txHash || '').toLowerCase()}:${Number(event.logIndex || 0)}`)
-  );
-
-  for (const fill of fillChunk) {
-    const key = `${String(fill.txHash || '').toLowerCase()}:${Number(fill.logIndex || 0)}`;
-    if (!fillIds.has(key)) {
-      chunkEvents.push(fill);
-    }
-  }
-
-  return sortByChainPoint(chunkEvents);
-}
 
 export async function buildOrbitCycleSnapshot(address, level, cycleNumber, options = {}) {
   const normalizedAddress = normalizeAddress(address);
@@ -463,30 +424,20 @@ export async function buildOrbitCycleSnapshot(address, level, cycleNumber, optio
   let cycleEvents;
   let fallbackMode = false;
 
-  if (boundary) {
+    if (boundary) {
     cycleEvents = allIndexedEvents.filter(
-      (event) =>
+        (event) =>
         event.eventName !== 'OrbitReset' &&
         isWithinCycleBoundary(event, boundary)
     );
-
-    const fillCount = cycleEvents.filter((event) => event.eventName === 'PositionFilled').length;
-    if (fillCount < totalPositions) {
-      cycleEvents = buildFallbackCycleFromFillChunks({
-        allIndexedEvents,
-        totalPositions,
-        cycleNumber,
-      });
-      fallbackMode = true;
-    }
-  } else {
-    cycleEvents = buildFallbackCycleFromFillChunks({
-      allIndexedEvents,
-      totalPositions,
-      cycleNumber,
-    });
+    } else {
+    cycleEvents = allIndexedEvents.filter(
+        (event) =>
+        event.eventName !== 'OrbitReset' &&
+        Number(event.cycleNumber || 0) === cycleNumber
+    );
     fallbackMode = true;
-  }
+    }
 
   if (cycleEvents.length === 0 && cycleReceipts.length === 0) {
     const error = new Error(`Cycle ${cycleNumber} is not available yet`);
@@ -575,10 +526,10 @@ export async function buildOrbitCycleSnapshot(address, level, cycleNumber, optio
         historicalReady: true,
       },
       cycleDerivation: {
-        usedResetBoundary: !!boundary && !fallbackMode,
-        fallbackUsed: fallbackMode || !boundary,
-        fillChunkFallbackUsed: fallbackMode,
-      },
+        usedResetBoundary: !!boundary,
+        fallbackUsed: fallbackMode,
+        fallbackMode: fallbackMode ? 'event-cycle-number' : 'reset-boundary',
+        },
     },
   };
 

@@ -298,18 +298,12 @@ function getResetEvents(events) {
   );
 }
 
-function getCombinedCompletedCycleCount(resetEvents, allIndexedReceipts) {
-  const maxResetCycle = Math.max(
-    0,
+function getCompletedCycleCount(resetEvents) {
+  if (!resetEvents.length) return 0;
+
+  return Math.max(
     ...resetEvents.map((event) => Number(event.cycleNumber || 0))
   );
-
-  const maxReceiptCycle = Math.max(
-    0,
-    ...allIndexedReceipts.map((receipt) => Number(receipt.sourceCycle || 0))
-  );
-
-  return Math.max(maxResetCycle, maxReceiptCycle);
 }
 
 function isAfterResetBoundary(item, resetEvent) {
@@ -329,35 +323,36 @@ function getCurrentCycleEvents(allEvents, totalCycles) {
 
   const currentCycleNumber = Number(totalCycles || 0) + 1;
 
-  const cycleTaggedCurrentEvents = sorted.filter((event) => {
-    const eventCycle = Number(event.cycleNumber || 0);
-    return (
+  // ALWAYS use reset boundary first (ground truth)
+  const eventsAfterReset = sorted.filter(
+    (event) =>
       event.eventName !== 'OrbitReset' &&
-      eventCycle > 0 &&
-      eventCycle === currentCycleNumber
-    );
-  });
+      isAfterResetBoundary(event, lastReset)
+  );
 
-  if (cycleTaggedCurrentEvents.length > 0) {
+  if (eventsAfterReset.length > 0) {
     return {
-      currentEvents: cycleTaggedCurrentEvents,
+      currentEvents: eventsAfterReset,
       lastReset,
       resetEvents,
       currentCycleNumber,
-      source: 'event-cycle-number',
+      source: 'reset-boundary',
     };
   }
 
+  // fallback only if reset-based fails
+  const cycleTaggedEvents = sorted.filter(
+    (event) =>
+      event.eventName !== 'OrbitReset' &&
+      Number(event.cycleNumber || 0) === currentCycleNumber
+  );
+
   return {
-    currentEvents: sorted.filter(
-      (event) =>
-        event.eventName !== 'OrbitReset' &&
-        isAfterResetBoundary(event, lastReset)
-    ),
+    currentEvents: cycleTaggedEvents,
     lastReset,
     resetEvents,
     currentCycleNumber,
-    source: 'reset-boundary',
+    source: 'event-cycle-number',
   };
 }
 
@@ -449,7 +444,7 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
   ]);
 
   const resetEvents = getResetEvents(allIndexedEvents);
-  const totalCycles = getCombinedCompletedCycleCount(resetEvents, allIndexedReceipts);
+  const totalCycles = getCompletedCycleCount(resetEvents);
 
   const {
     currentEvents,
