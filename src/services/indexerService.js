@@ -908,6 +908,49 @@ async function processLiveTailTarget({
   };
 }
 
+// async function runLiveTailSync({
+//   chainId,
+//   latestBlock,
+//   targets,
+// }) {
+//   if (!LIVE_TAIL_ENABLED) {
+//     return {
+//       enabled: false,
+//       results: [],
+//     };
+//   }
+
+//   if (passCounter % LIVE_TAIL_EVERY_N_PASSES !== 0) {
+//     return {
+//       enabled: true,
+//       skipped: true,
+//       windowBlocks: LIVE_TAIL_WINDOW_BLOCKS,
+//       results: [],
+//     };
+//   }
+
+//   const liveTailTargets = buildLiveTailTargets(targets);
+//   const results = [];
+
+//   for (const target of liveTailTargets) {
+//     const result = await processLiveTailTarget({
+//       chainId,
+//       latestBlock,
+//       target,
+//     });
+
+//     results.push(result);
+//     await sleep(30);
+//   }
+
+//   return {
+//     enabled: true,
+//     skipped: false,
+//     windowBlocks: LIVE_TAIL_WINDOW_BLOCKS,
+//     results,
+//   };
+// }
+
 async function runLiveTailSync({
   chainId,
   latestBlock,
@@ -930,18 +973,33 @@ async function runLiveTailSync({
   }
 
   const liveTailTargets = buildLiveTailTargets(targets);
-  const results = [];
 
-  for (const target of liveTailTargets) {
-    const result = await processLiveTailTarget({
-      chainId,
-      latestBlock,
-      target,
-    });
+  const results = await Promise.all(
+    liveTailTargets.map(async (target) => {
+      try {
+        return await processLiveTailTarget({
+          chainId,
+          latestBlock,
+          target,
+        });
+      } catch (error) {
+        console.error('[LIVE_TAIL_TARGET_ERROR]', {
+          target: target.key,
+          message: buildErrorMessage(error),
+        });
 
-    results.push(result);
-    await sleep(30);
-  }
+        return {
+          key: target.key,
+          processed: false,
+          fromBlock: null,
+          toBlock: null,
+          logCount: 0,
+          rateLimited: false,
+          error: buildErrorMessage(error),
+        };
+      }
+    })
+  );
 
   return {
     enabled: true,
@@ -977,20 +1035,58 @@ async function buildIndexerContext() {
   };
 }
 
+// export async function runIndexerCycle(context = null) {
+//   const ctx = context || (await buildIndexerContext());
+//   const results = [];
+
+//   for (const target of ctx.targets) {
+//     const result = await processTargetChunk({
+//       chainId: ctx.chainId,
+//       safeBlock: ctx.safeBlock,
+//       target,
+//     });
+
+//     results.push(result);
+//     await sleep(30);
+//   }
+
+//   return {
+//     latestBlock: ctx.latestBlock,
+//     safeBlock: ctx.safeBlock,
+//     results,
+//   };
+// }
+
+
 export async function runIndexerCycle(context = null) {
   const ctx = context || (await buildIndexerContext());
-  const results = [];
 
-  for (const target of ctx.targets) {
-    const result = await processTargetChunk({
-      chainId: ctx.chainId,
-      safeBlock: ctx.safeBlock,
-      target,
-    });
+  const results = await Promise.all(
+    ctx.targets.map(async (target) => {
+      try {
+        return await processTargetChunk({
+          chainId: ctx.chainId,
+          safeBlock: ctx.safeBlock,
+          target,
+        });
+      } catch (error) {
+        console.error('[INDEXER_TARGET_ERROR]', {
+          target: target.key,
+          message: buildErrorMessage(error),
+        });
 
-    results.push(result);
-    await sleep(30);
-  }
+        return {
+          key: target.key,
+          status: 'error',
+          processed: false,
+          safeBlock: ctx.safeBlock,
+          lastProcessedBlock: 0,
+          lagBlocks: 0,
+          error: buildErrorMessage(error),
+        };
+      }
+    })
+  );
 
   return {
     latestBlock: ctx.latestBlock,
