@@ -999,30 +999,89 @@ export async function runIndexerCycle(context = null) {
   };
 }
 
+// export async function runIndexerPass() {
+//   passCounter += 1;
+//   const context = await buildIndexerContext();
+
+//   const liveTail = await runLiveTailSync({
+//     chainId: context.chainId,
+//     latestBlock: context.latestBlock,
+//     targets: context.targets,
+//   });
+
+//   const ordered = await runIndexerCycle(context);
+
+//   const maxLag = ordered.results.reduce(
+//     (max, item) => Math.max(max, Number(item?.lagBlocks || 0)),
+//     0
+//   );
+
+//   if (env.LOG_LEVEL === 'debug' || maxLag > 0) {
+//     console.log('[INDEXER_PASS_SUMMARY]', {
+//       latestBlock: context.latestBlock,
+//       safeBlock: context.safeBlock,
+//       maxLag,
+//       liveTailResults: liveTail.results?.length || 0,
+//       orderedResults: ordered.results?.length || 0,
+//     });
+//   }
+
+//   return {
+//     latestBlock: context.latestBlock,
+//     safeBlock: context.safeBlock,
+//     liveTail,
+//     ordered,
+//     providerHealth: getProviderHealthSnapshot(),
+//   };
+// }
+
+
+
 export async function runIndexerPass() {
   passCounter += 1;
   const context = await buildIndexerContext();
 
-  const liveTail = await runLiveTailSync({
-    chainId: context.chainId,
-    latestBlock: context.latestBlock,
-    targets: context.targets,
-  });
-
+  // Always run ordered sync first so SyncState rows are created and updated
   const ordered = await runIndexerCycle(context);
+
+  let liveTail = {
+    enabled: LIVE_TAIL_ENABLED,
+    skipped: false,
+    windowBlocks: LIVE_TAIL_WINDOW_BLOCKS,
+    results: [],
+    error: '',
+  };
+
+  try {
+    liveTail = await runLiveTailSync({
+      chainId: context.chainId,
+      latestBlock: context.latestBlock,
+      targets: context.targets,
+    });
+  } catch (error) {
+    console.error('[LIVE_TAIL_PASS_ERROR]', buildErrorMessage(error));
+    liveTail = {
+      enabled: LIVE_TAIL_ENABLED,
+      skipped: false,
+      windowBlocks: LIVE_TAIL_WINDOW_BLOCKS,
+      results: [],
+      error: buildErrorMessage(error),
+    };
+  }
 
   const maxLag = ordered.results.reduce(
     (max, item) => Math.max(max, Number(item?.lagBlocks || 0)),
     0
   );
 
-  if (env.LOG_LEVEL === 'debug' || maxLag > 0) {
+  if (String(env.LOG_LEVEL || '').toLowerCase() === 'debug' || maxLag > 0) {
     console.log('[INDEXER_PASS_SUMMARY]', {
       latestBlock: context.latestBlock,
       safeBlock: context.safeBlock,
       maxLag,
       liveTailResults: liveTail.results?.length || 0,
       orderedResults: ordered.results?.length || 0,
+      liveTailError: liveTail.error || '',
     });
   }
 
