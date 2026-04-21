@@ -53,6 +53,11 @@ const env = {
   // Backward compatibility fallback
   RPC_URL: optional('RPC_URL', ''),
 
+  WS_RPC_URL_1: optional('WS_RPC_URL_1'),
+  WS_RPC_URL_2: optional('WS_RPC_URL_2'),
+  WS_RPC_URL_3: optional('WS_RPC_URL_3'),
+
+  // Backward compatibiltiy fallback
   WS_RPC_URL: optional('WS_RPC_URL', ''),
 
   START_BLOCK: Math.max(0, optionalInteger('START_BLOCK', 0)),
@@ -151,6 +156,37 @@ const env = {
   ),
 
   LOG_LEVEL: optional('LOG_LEVEL', 'info'),
+
+  RPC_RATE_LIMIT_COOLDOWN_MS: clamp(
+    optionalInteger('RPC_RATE_LIMIT_COOLDOWN_MS', 15000),
+    1000,
+    900000,
+    15000
+  ),
+  RPC_TRANSIENT_COOLDOWN_MS: clamp(
+    optionalInteger('RPC_TRANSIENT_COOLDOWN_MS', 6000),
+    500,
+    300000,
+    6000
+  ),
+  WS_RECONNECT_BASE_DELAY_MS: clamp(
+    optionalInteger('WS_RECONNECT_BASE_DELAY_MS', 2000),
+    250,
+    60000,
+    2000
+  ),
+  WS_RECONNECT_MAX_DELAY_MS: clamp(
+    optionalInteger('WS_RECONNECT_MAX_DELAY_MS', 30000),
+    1000,
+    300000,
+    30000
+  ),
+  WS_FALLBACK_POLL_INTERVAL_MS: clamp(
+    optionalInteger('WS_FALLBACK_POLL_INTERVAL_MS', 4000),
+    500,
+    300000,
+    4000
+  ),
 };
 
 const rpcUrls = [
@@ -167,6 +203,25 @@ if (rpcUrls.length === 0) {
 }
 
 env.RPC_URLS = rpcUrls;
+
+
+const wsRpcUrls = [
+  env.WS_RPC_URL_1,
+  env.WS_RPC_URL_2,
+  env.WS_RPC_URL_3,
+  env.WS_RPC_URL,
+].filter((value, index, arr) => value && arr.indexOf(value) === index);
+
+if (wsRpcUrls.length === 0) {
+  throw new Error(
+    'Missing ws configuration: provide at least one of WS_RPC_URL_1, WS_RPC_URL_2, WS_RPC_URL_3, or WS_RPC_URL'
+  );
+}
+
+env.WS_RPC_URLS = wsRpcUrls
+
+
+
 
 export default env;
 
