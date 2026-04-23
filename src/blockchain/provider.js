@@ -390,9 +390,75 @@ function clearWsReconnectTimer(entry) {
   }
 }
 
+// function getWsUnderlyingSocket(provider) {
+//   return provider?._websocket || provider?.websocket || null;
+// }
+
 function getWsUnderlyingSocket(provider) {
-  return provider?._websocket || provider?.websocket || null;
+  if (!provider) return null;
+
+  try {
+    if (provider._websocket) {
+      return provider._websocket;
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    return provider.websocket || null;
+  } catch (error) {
+    const message = String(
+      error?.error?.message ||
+      error?.message ||
+      error?.shortMessage ||
+      ''
+    ).toLowerCase();
+
+    if (message.includes('websocket closed')) {
+      return null;
+    }
+
+    logDebug('[WS_SOCKET_ACCESS_FAILED]', message);
+    return null;
+  }
 }
+
+// function cleanupWsProviderListeners(entry) {
+//   const existing = wsProviderListeners.get(entry.id);
+//   if (!existing || !entry.provider) return;
+
+//   try {
+//     if (existing.blockHandler) {
+//       entry.provider.off('block', existing.blockHandler);
+//     }
+//   } catch {
+//     // ignore
+//   }
+
+//   const socket = getWsUnderlyingSocket(entry.provider);
+//   if (socket) {
+//     try {
+//       if (existing.openHandler) {
+//         socket.removeEventListener?.('open', existing.openHandler);
+//         socket.off?.('open', existing.openHandler);
+//       }
+//       if (existing.closeHandler) {
+//         socket.removeEventListener?.('close', existing.closeHandler);
+//         socket.off?.('close', existing.closeHandler);
+//       }
+//       if (existing.errorHandler) {
+//         socket.removeEventListener?.('error', existing.errorHandler);
+//         socket.off?.('error', existing.errorHandler);
+//       }
+//     } catch {
+//       // ignore
+//     }
+//   }
+
+//   wsProviderListeners.delete(entry.id);
+// }
+
 
 function cleanupWsProviderListeners(entry) {
   const existing = wsProviderListeners.get(entry.id);
@@ -406,7 +472,13 @@ function cleanupWsProviderListeners(entry) {
     // ignore
   }
 
-  const socket = getWsUnderlyingSocket(entry.provider);
+  let socket = null;
+  try {
+    socket = getWsUnderlyingSocket(entry.provider);
+  } catch {
+    socket = null;
+  }
+
   if (socket) {
     try {
       if (existing.openHandler) {
@@ -429,12 +501,39 @@ function cleanupWsProviderListeners(entry) {
   wsProviderListeners.delete(entry.id);
 }
 
+// async function destroyWsProvider(entry) {
+//   clearWsReconnectTimer(entry);
+//   cleanupWsProviderListeners(entry);
+
+//   if (!entry.provider) {
+//     entry.connected = false;
+//     return;
+//   }
+
+//   const provider = entry.provider;
+//   entry.provider = null;
+//   entry.connected = false;
+
+//   try {
+//     await provider.destroy?.();
+//   } catch {
+//     // ignore
+//   }
+
+//   const socket = getWsUnderlyingSocket(provider);
+//   try {
+//     socket?.close?.();
+//   } catch {
+//     // ignore
+//   }
+// }
+
 async function destroyWsProvider(entry) {
   clearWsReconnectTimer(entry);
-  cleanupWsProviderListeners(entry);
 
   if (!entry.provider) {
     entry.connected = false;
+    cleanupWsProviderListeners(entry);
     return;
   }
 
@@ -443,13 +542,19 @@ async function destroyWsProvider(entry) {
   entry.connected = false;
 
   try {
+    cleanupWsProviderListeners({ ...entry, provider });
+  } catch {
+    // ignore
+  }
+
+  try {
     await provider.destroy?.();
   } catch {
     // ignore
   }
 
-  const socket = getWsUnderlyingSocket(provider);
   try {
+    const socket = getWsUnderlyingSocket(provider);
     socket?.close?.();
   } catch {
     // ignore
