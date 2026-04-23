@@ -550,6 +550,32 @@ function countFilledPositions(positions = []) {
   return positions.filter((position) => !!position?.occupant).length;
 }
 
+// function shouldPreserveExistingSnapshot({
+//   existingSnapshot,
+//   rebuiltPositions,
+//   currentEvents,
+//   currentReceipts,
+// }) {
+//   if (!existingSnapshot?.positions?.length) return false;
+
+//   const existingFilled = countFilledPositions(existingSnapshot.positions);
+//   const rebuiltFilled = countFilledPositions(rebuiltPositions);
+
+//   if (existingFilled === 0) return false;
+
+//   if (rebuiltFilled >= existingFilled) return false;
+
+//   const rebuiltHasNoSignal =
+//     (currentEvents?.length || 0) === 0 &&
+//     (currentReceipts?.length || 0) === 0;
+
+//   if (rebuiltHasNoSignal) return true;
+
+//   if (rebuiltFilled === 0 && existingFilled > 0) return true;
+
+//   return false;
+// }
+
 function shouldPreserveExistingSnapshot({
   existingSnapshot,
   rebuiltPositions,
@@ -560,10 +586,15 @@ function shouldPreserveExistingSnapshot({
 
   const existingFilled = countFilledPositions(existingSnapshot.positions);
   const rebuiltFilled = countFilledPositions(rebuiltPositions);
+  const totalPositions = rebuiltPositions.length;
 
   if (existingFilled === 0) return false;
 
+  // Never preserve old snapshot when rebuild is equal or better
   if (rebuiltFilled >= existingFilled) return false;
+
+  // Never preserve old snapshot when rebuild shows a fully completed orbit
+  if (rebuiltFilled === totalPositions && totalPositions > 0) return false;
 
   const rebuiltHasNoSignal =
     (currentEvents?.length || 0) === 0 &&
@@ -737,11 +768,28 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
     });
   }
 
+  // const filledCurrentPositions = countFilledPositions(positions);
+  // const currentPosition =
+  //   filledCurrentPositions >= positionsCount
+  //     ? positionsCount
+  //     : filledCurrentPositions + 1;
+
+
   const filledCurrentPositions = countFilledPositions(positions);
   const currentPosition =
-    filledCurrentPositions >= positionsCount
-      ? positionsCount
-      : filledCurrentPositions + 1;
+  filledCurrentPositions >= positionsCount
+    ? 0
+    : filledCurrentPositions + 1;
+
+    logDebug('[CURRENT_CYCLE_POSITION_CHECK]', {
+    address: normalizedAddress,
+    level,
+    orbitType,
+    filledCurrentPositions,
+    positionsCount,
+    totalCycles,
+    currentCycleNumber,
+  });
 
   const positionsInLine1 = positions.filter(
     (p) => p.line === 1 && p.occupant

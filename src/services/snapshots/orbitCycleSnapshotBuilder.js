@@ -470,6 +470,31 @@ function countFilledPositions(positions = []) {
   return positions.filter((position) => !!position?.occupant).length;
 }
 
+// function shouldPreserveExistingCycleSnapshot({
+//   existingSnapshot,
+//   rebuiltPositions,
+//   cycleEvents,
+//   cycleReceipts,
+// }) {
+//   if (!existingSnapshot?.positions?.length) return false;
+
+//   const existingFilled = countFilledPositions(existingSnapshot.positions);
+//   const rebuiltFilled = countFilledPositions(rebuiltPositions);
+
+//   if (existingFilled === 0) return false;
+//   if (rebuiltFilled >= existingFilled) return false;
+
+//   const rebuiltHasNoSignal =
+//     (cycleEvents?.length || 0) === 0 &&
+//     (cycleReceipts?.length || 0) === 0;
+
+//   if (rebuiltHasNoSignal) return true;
+//   if (rebuiltFilled === 0 && existingFilled > 0) return true;
+
+//   return false;
+// }
+
+
 function shouldPreserveExistingCycleSnapshot({
   existingSnapshot,
   rebuiltPositions,
@@ -480,9 +505,13 @@ function shouldPreserveExistingCycleSnapshot({
 
   const existingFilled = countFilledPositions(existingSnapshot.positions);
   const rebuiltFilled = countFilledPositions(rebuiltPositions);
+  const totalPositions = rebuiltPositions.length;
 
   if (existingFilled === 0) return false;
   if (rebuiltFilled >= existingFilled) return false;
+
+  // Never preserve older cycle snapshot when rebuild shows full cycle
+  if (rebuiltFilled === totalPositions && totalPositions > 0) return false;
 
   const rebuiltHasNoSignal =
     (cycleEvents?.length || 0) === 0 &&
@@ -588,6 +617,25 @@ export async function buildOrbitCycleSnapshot(address, level, cycleNumber, optio
       (receipt) => Number(receipt.sourceCycle || 0) === cycleNumber
     );
   }
+
+  // let cycleEvents;
+  // let fallbackMode = false;
+
+  // if (boundary) {
+  //   cycleEvents = allIndexedEvents.filter(
+  //     (event) =>
+  //       event.eventName !== 'OrbitReset' &&
+  //       isWithinCycleBoundary(event, boundary)
+  //   );
+  // } else {
+  //   cycleEvents = allIndexedEvents.filter(
+  //     (event) =>
+  //       event.eventName !== 'OrbitReset' &&
+  //       Number(event.cycleNumber || 0) === cycleNumber
+  //   );
+  //   fallbackMode = true;
+  // }
+
 
   let cycleEvents;
   let fallbackMode = false;
