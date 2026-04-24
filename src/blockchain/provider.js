@@ -426,9 +426,7 @@ function clearWsReconnectTimer(entry) {
   }
 }
 
-// function getWsUnderlyingSocket(provider) {
-//   return provider?._websocket || provider?.websocket || null;
-// }
+
 
 function getWsUnderlyingSocket(provider) {
   if (!provider) return null;
@@ -460,40 +458,6 @@ function getWsUnderlyingSocket(provider) {
   }
 }
 
-// function cleanupWsProviderListeners(entry) {
-//   const existing = wsProviderListeners.get(entry.id);
-//   if (!existing || !entry.provider) return;
-
-//   try {
-//     if (existing.blockHandler) {
-//       entry.provider.off('block', existing.blockHandler);
-//     }
-//   } catch {
-//     // ignore
-//   }
-
-//   const socket = getWsUnderlyingSocket(entry.provider);
-//   if (socket) {
-//     try {
-//       if (existing.openHandler) {
-//         socket.removeEventListener?.('open', existing.openHandler);
-//         socket.off?.('open', existing.openHandler);
-//       }
-//       if (existing.closeHandler) {
-//         socket.removeEventListener?.('close', existing.closeHandler);
-//         socket.off?.('close', existing.closeHandler);
-//       }
-//       if (existing.errorHandler) {
-//         socket.removeEventListener?.('error', existing.errorHandler);
-//         socket.off?.('error', existing.errorHandler);
-//       }
-//     } catch {
-//       // ignore
-//     }
-//   }
-
-//   wsProviderListeners.delete(entry.id);
-// }
 
 
 function cleanupWsProviderListeners(entry) {
@@ -536,33 +500,6 @@ function cleanupWsProviderListeners(entry) {
 
   wsProviderListeners.delete(entry.id);
 }
-
-// async function destroyWsProvider(entry) {
-//   clearWsReconnectTimer(entry);
-//   cleanupWsProviderListeners(entry);
-
-//   if (!entry.provider) {
-//     entry.connected = false;
-//     return;
-//   }
-
-//   const provider = entry.provider;
-//   entry.provider = null;
-//   entry.connected = false;
-
-//   try {
-//     await provider.destroy?.();
-//   } catch {
-//     // ignore
-//   }
-
-//   const socket = getWsUnderlyingSocket(provider);
-//   try {
-//     socket?.close?.();
-//   } catch {
-//     // ignore
-//   }
-// }
 
 async function destroyWsProvider(entry) {
   clearWsReconnectTimer(entry);
@@ -630,22 +567,6 @@ function scheduleWsReconnect(entry, reason = null) {
     attempt: entry.reconnectAttempt,
   });
 }
-
-// function broadcastNewBlock(blockNumber) {
-//   const numericBlock = Number(blockNumber || 0);
-//   if (!Number.isFinite(numericBlock) || numericBlock <= 0) return;
-
-//   if (numericBlock <= lastBroadcastBlock) return;
-//   lastBroadcastBlock = numericBlock;
-
-//   for (const listener of wsBlockListeners) {
-//     Promise.resolve()
-//       .then(() => listener(numericBlock))
-//       .catch((error) => {
-//         console.error('[WS_BLOCK_LISTENER_ERROR]', error);
-//       });
-//   }
-// }
 
 
 let lastEmittedBlock = 0;
@@ -884,6 +805,9 @@ export function getProviderHealthSnapshot() {
   };
 }
 
+// ===========================
+// first working version
+// =================================
 // export async function safeRpcCall(
 //   fn,
 //   retries = getHttpRetryAttempts(),
@@ -893,6 +817,7 @@ export function getProviderHealthSnapshot() {
 //   let lastError = null;
 
 //   while (attempt <= retries) {
+//     await enforceRateLimit();
 //     await acquireRpcSlot();
 
 //     const entry = pickNextHttpProviderEntry();
@@ -944,6 +869,70 @@ export function getProviderHealthSnapshot() {
 //   throw lastError || new Error('All RPC providers failed');
 // }
 
+// =================================
+// Second not tested version - i wanted to use this before i switched to the vurrent verion
+// export async function safeRpcCall(
+//   fn,
+//   retries = getHttpRetryAttempts(),
+//   baseDelayMs = getHttpRetryBaseDelayMs()
+// ) {
+//   let attempt = 0;
+//   let lastError = null;
+
+//   while (attempt <= retries) {
+//     await enforceRateLimit();
+//     await acquireRpcSlot();
+
+//     const entry = pickNextHttpProviderEntry();
+
+//     try {
+//       const result = await fn(entry.provider, entry);
+//       markHttpProviderSuccess(entry);
+//       return result;
+//     } catch (error) {
+//       lastError = error;
+
+//       if (!isTransientRpcError(error)) {
+//         throw error;
+//       }
+
+//       markHttpProviderFailure(entry, error);
+
+//       if (isDebugLoggingEnabled()) {
+//         console.warn(
+//           `[RPC] ${entry.id} failed attempt ${attempt + 1}/${retries + 1}`,
+//           buildErrorMessage(error)
+//         );
+//       }
+
+//       attempt += 1;
+
+//       // IMPORTANT:
+//       // Out-of-credit RPCs are already placed in cooldown.
+//       // Do NOT sleep for 120s here. Immediately try another provider.
+//       if (isOutOfCreditsError(error)) {
+//         continue;
+//       }
+
+//       if (attempt > retries) {
+//         break;
+//       }
+
+//       const waitMs = isRateLimitError(error)
+//         ? Math.min(baseDelayMs * Math.pow(2, attempt - 1), 3000)
+//         : Math.min(baseDelayMs * Math.pow(2, attempt - 1), 1500);
+
+//       releaseRpcSlot();
+//       await sleep(waitMs);
+//       continue;
+//     } finally {
+//       releaseRpcSlot();
+//     }
+//   }
+
+//   throw lastError || new Error('All RPC providers failed');
+// }
+
 export async function safeRpcCall(
   fn,
   retries = getHttpRetryAttempts(),
@@ -972,31 +961,34 @@ export async function safeRpcCall(
 
       markHttpProviderFailure(entry, error);
 
-      if (attempt >= retries) {
-        break;
-      }
-
-      const waitMs = isOutOfCreditsError(error)
-        ? getOutOfCreditsCooldownMs()
-        : isRateLimitError(error)
-          ? Math.min(baseDelayMs * Math.pow(2, attempt), getRateLimitCooldownMs(entry.failures))
-          : Math.min(baseDelayMs * Math.pow(2, attempt), getTransientCooldownMs(entry.failures));
-
       if (isDebugLoggingEnabled()) {
         console.warn(
-          `[RPC] ${entry.id} retry ${attempt + 1}/${retries} after ${waitMs}ms`,
+          `[RPC] ${entry.id} failed attempt ${attempt + 1}/${retries + 1}`,
           buildErrorMessage(error)
         );
       }
+
+      attempt += 1;
+
+      if (isOutOfCreditsError(error)) {
+        continue;
+      }
+
+      if (attempt > retries) {
+        break;
+      }
+
+      const waitMs = isRateLimitError(error)
+        ? Math.min(baseDelayMs * Math.pow(2, attempt - 1), 3000)
+        : Math.min(baseDelayMs * Math.pow(2, attempt - 1), 1500);
 
       releaseRpcSlot();
       releasedEarly = true;
 
       await sleep(waitMs);
-      attempt += 1;
       continue;
     } finally {
-      if (!releasedEarly && activeRpcCalls > 0) {
+      if (!releasedEarly) {
         releaseRpcSlot();
       }
     }
@@ -1004,6 +996,8 @@ export async function safeRpcCall(
 
   throw lastError || new Error('All RPC providers failed');
 }
+
+
 
 export async function safeSharedRpcCall(key, fn) {
   return dedupedRpcCall(key, fn, 300);

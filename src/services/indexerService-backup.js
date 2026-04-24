@@ -498,21 +498,15 @@ async function processLogsForContract({
     });
 
     const block = await getBlockCached(log.blockNumber);
-    // if (!block) {
-    //   console.warn('[MISSING_BLOCK_FOR_LOG]', {
-    //     contractKey,
-    //     contractAddress,
-    //     txHash: log.transactionHash,
-    //     logIndex: log.index,
-    //     blockNumber: log.blockNumber,
-    //   });
-    //   continue;
-    // }
-
     if (!block) {
-      throw new Error(
-        `[MISSING_BLOCK_FOR_LOG] ${contractKey} ${log.transactionHash}:${log.index} block ${log.blockNumber}`
-      );
+      console.warn('[MISSING_BLOCK_FOR_LOG]', {
+        contractKey,
+        contractAddress,
+        txHash: log.transactionHash,
+        logIndex: log.index,
+        blockNumber: log.blockNumber,
+      });
+      continue;
     }
 
     if (
@@ -903,21 +897,16 @@ async function processLiveTailTarget({ chainId, latestBlock, target }) {
         continue;
       }
 
-      // if (isRateLimitError(error) || isOutOfCreditsError(error)) {
-      //   rateLimited = true;
-      //   const cooldownMs = isOutOfCreditsError(error)
-      //     ? Math.max(15000, Number(env.RPC_OUT_OF_CREDITS_COOLDOWN_MS) || 15000)
-      //     : 3000;
-
-      //   setTargetBackoff(target.key, cooldownMs);
-      //   break;
-      // }
-
-
       if (isRateLimitError(error) || isOutOfCreditsError(error)) {
         rateLimited = true;
+        const cooldownMs = isOutOfCreditsError(error)
+          ? Math.max(15000, Number(env.RPC_OUT_OF_CREDITS_COOLDOWN_MS) || 15000)
+          : 3000;
+
+        setTargetBackoff(target.key, cooldownMs);
         break;
       }
+
       break;
     }
   }
