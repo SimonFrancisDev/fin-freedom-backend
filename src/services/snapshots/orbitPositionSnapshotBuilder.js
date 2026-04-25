@@ -448,22 +448,50 @@ function hasFilledSnapshot(snapshot) {
   return Boolean(snapshot?.occupant);
 }
 
+// function shouldPreserveExistingPositionSnapshot({
+//   existingSnapshot,
+//   rebuiltSnapshot,
+//   eventsForPosition,
+//   receiptsForPosition,
+// }) {
+//   if (!hasFilledSnapshot(existingSnapshot)) return false;
+//   if (hasFilledSnapshot(rebuiltSnapshot)) return false;
+
+//   const rebuiltHasNoSignal =
+//     (eventsForPosition?.length || 0) === 0 &&
+//     (receiptsForPosition?.length || 0) === 0;
+
+//   if (rebuiltHasNoSignal) return true;
+//   return true;
+// }
+
 function shouldPreserveExistingPositionSnapshot({
   existingSnapshot,
   rebuiltSnapshot,
   eventsForPosition,
   receiptsForPosition,
+  lastReset,
 }) {
   if (!hasFilledSnapshot(existingSnapshot)) return false;
+
+  // If we already rebuilt a valid position → do not preserve
   if (hasFilledSnapshot(rebuiltSnapshot)) return false;
 
   const rebuiltHasNoSignal =
     (eventsForPosition?.length || 0) === 0 &&
     (receiptsForPosition?.length || 0) === 0;
 
+  // 🔥 CRITICAL FIX:
+  // If a reset has happened, NEVER preserve old data
+  if (lastReset) return false;
+
+  // Only preserve when NO reset and no new data
   if (rebuiltHasNoSignal) return true;
-  return true;
+
+  return false;
 }
+
+
 
 function preserveExistingPositionSnapshot(existingSnapshot, currentCycleNumber) {
   return {
@@ -578,11 +606,18 @@ export async function buildOrbitPositionSnapshot(address, level, position, optio
   let preservedFromExisting = false;
 
   if (
+    // shouldPreserveExistingPositionSnapshot({
+    //   existingSnapshot,
+    //   rebuiltSnapshot,
+    //   eventsForPosition,
+    //   receiptsForPosition,
+    // })
     shouldPreserveExistingPositionSnapshot({
       existingSnapshot,
       rebuiltSnapshot,
       eventsForPosition,
       receiptsForPosition,
+      lastReset,
     })
   ) {
     rebuiltSnapshot = preserveExistingPositionSnapshot(

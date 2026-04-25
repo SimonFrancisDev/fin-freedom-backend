@@ -495,11 +495,40 @@ function countFilledPositions(positions = []) {
 // }
 
 
+// function shouldPreserveExistingCycleSnapshot({
+//   existingSnapshot,
+//   rebuiltPositions,
+//   cycleEvents,
+//   cycleReceipts,
+// }) {
+//   if (!existingSnapshot?.positions?.length) return false;
+
+//   const existingFilled = countFilledPositions(existingSnapshot.positions);
+//   const rebuiltFilled = countFilledPositions(rebuiltPositions);
+//   const totalPositions = rebuiltPositions.length;
+
+//   if (existingFilled === 0) return false;
+//   if (rebuiltFilled >= existingFilled) return false;
+
+//   // Never preserve older cycle snapshot when rebuild shows full cycle
+//   if (rebuiltFilled === totalPositions && totalPositions > 0) return false;
+
+//   const rebuiltHasNoSignal =
+//     (cycleEvents?.length || 0) === 0 &&
+//     (cycleReceipts?.length || 0) === 0;
+
+//   if (rebuiltHasNoSignal) return true;
+//   if (rebuiltFilled === 0 && existingFilled > 0) return true;
+
+//   return false;
+// }
+
 function shouldPreserveExistingCycleSnapshot({
   existingSnapshot,
   rebuiltPositions,
   cycleEvents,
   cycleReceipts,
+  boundary,
 }) {
   if (!existingSnapshot?.positions?.length) return false;
 
@@ -509,13 +538,14 @@ function shouldPreserveExistingCycleSnapshot({
 
   if (existingFilled === 0) return false;
   if (rebuiltFilled >= existingFilled) return false;
-
-  // Never preserve older cycle snapshot when rebuild shows full cycle
   if (rebuiltFilled === totalPositions && totalPositions > 0) return false;
 
   const rebuiltHasNoSignal =
     (cycleEvents?.length || 0) === 0 &&
     (cycleReceipts?.length || 0) === 0;
+
+  // If we have a real reset boundary, trust rebuilt chain-derived data.
+  if (boundary) return false;
 
   if (rebuiltHasNoSignal) return true;
   if (rebuiltFilled === 0 && existingFilled > 0) return true;
@@ -655,18 +685,23 @@ export async function buildOrbitCycleSnapshot(address, level, cycleNumber, optio
     fallbackMode = true;
   }
 
-  if (cycleEvents.length === 0 && cycleReceipts.length === 0) {
-    if (existingSnapshot?.positions?.length) {
-      logDebug('[ORBIT_CYCLE_SNAPSHOT_REUSED_EXISTING_ON_EMPTY_REBUILD]', {
-        address: normalizedAddress,
-        level,
-        cycleNumber,
-        orbitType,
-      });
+  // if (cycleEvents.length === 0 && cycleReceipts.length === 0) {
+  //   if (existingSnapshot?.positions?.length) {
+  //     logDebug('[ORBIT_CYCLE_SNAPSHOT_REUSED_EXISTING_ON_EMPTY_REBUILD]', {
+  //       address: normalizedAddress,
+  //       level,
+  //       cycleNumber,
+  //       orbitType,
+  //     });
 
-      return existingSnapshot;
-    }
+  //     return existingSnapshot;
+  //   }
 
+  //   const error = new Error(`Cycle ${cycleNumber} is not available yet`);
+  //   error.status = 404;
+  //   throw error;
+  // }
+    if (cycleEvents.length === 0 && cycleReceipts.length === 0) {
     const error = new Error(`Cycle ${cycleNumber} is not available yet`);
     error.status = 404;
     throw error;
@@ -724,12 +759,20 @@ export async function buildOrbitCycleSnapshot(address, level, cycleNumber, optio
   let preservedFromExisting = false;
 
   if (
+    // shouldPreserveExistingCycleSnapshot({
+    //   existingSnapshot,
+    //   rebuiltPositions: positions,
+    //   cycleEvents,
+    //   cycleReceipts,
+    // })
+
     shouldPreserveExistingCycleSnapshot({
-      existingSnapshot,
-      rebuiltPositions: positions,
-      cycleEvents,
-      cycleReceipts,
-    })
+    existingSnapshot,
+    rebuiltPositions: positions,
+    cycleEvents,
+    cycleReceipts,
+    boundary,
+  })
   ) {
     const preserved = preserveExistingCycleSnapshot({
       existingSnapshot,
