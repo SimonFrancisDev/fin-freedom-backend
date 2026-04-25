@@ -4,6 +4,7 @@ import { connectDB } from './config/db.js';
 import { connectBlockchain } from './blockchain/provider.js';
 import { verifyContracts } from './blockchain/contracts.js';
 import { startIndexer } from './services/indexerService.js';
+import { startRealtimeEventIndexer } from './services/realtimeEventIndexer.js';
 import env from './config/env.js';
 
 async function startServer() {
@@ -29,7 +30,19 @@ async function startServer() {
       process.exit(1);
     });
 
+    // if (env.RUN_INDEXER) {
+    //   startIndexer().catch((error) => {
+    //     console.error('Indexer startup error:', error);
+    //   });
+    // } else {
+    //   console.log('Indexer not started in this process.');
+    // }
+
     if (env.RUN_INDEXER) {
+      startRealtimeEventIndexer().catch((error) => {
+        console.error('Realtime event indexer startup error:', error);
+      });
+
       startIndexer().catch((error) => {
         console.error('Indexer startup error:', error);
       });

@@ -520,18 +520,45 @@ async function destroyWsProvider(entry) {
     // ignore
   }
 
-  try {
-    await provider.destroy?.();
-  } catch {
-    // ignore
-  }
+  // try {
+  //   await provider.destroy?.();
+  // } catch {
+  //   // ignore
+  // }
+
 
   try {
     const socket = getWsUnderlyingSocket(provider);
-    socket?.close?.();
-  } catch {
-    // ignore
+
+    if (socket) {
+      // prevent unhandled error crash
+      socket.onerror = () => {};
+      socket.onclose = () => {};
+      socket.addEventListener?.('error', () => {});
+    }
+
+    await provider.destroy?.();
+  } catch (error) {
+    logDebug('[WS_PROVIDER_DESTROY_IGNORED]', buildErrorMessage(error));
   }
+
+//   try {
+//     const socket = getWsUnderlyingSocket(provider);
+//     socket?.close?.();
+//   } catch {
+//   // ignore
+// }
+
+    try {
+      const socket = getWsUnderlyingSocket(provider);
+
+      if (socket && socket.readyState === 1) {
+        // only close if OPEN
+        socket.close();
+      }
+    } catch (error) {
+      logDebug('[WS_SOCKET_CLOSE_IGNORED]', buildErrorMessage(error));
+    }
 }
 
 function scheduleWsReconnect(entry, reason = null) {
@@ -970,7 +997,13 @@ export async function safeRpcCall(
 
       attempt += 1;
 
+      // if (isOutOfCreditsError(error)) {
+      //   continue;
+      // }
+
       if (isOutOfCreditsError(error)) {
+        releaseRpcSlot();
+        releasedEarly = true;
         continue;
       }
 
