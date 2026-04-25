@@ -1,0 +1,186 @@
+[
+  {
+    "type": "function",
+    "name": "owner",
+    "inputs": [],
+    "outputs": [{ "name": "", "type": "address" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "guardian",
+    "inputs": [],
+    "outputs": [{ "name": "", "type": "address" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "id1Wallet",
+    "inputs": [],
+    "outputs": [{ "name": "", "type": "address" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getUserDetailedPayoutReceiptCount",
+    "inputs": [
+      { "name": "user", "type": "address" }
+    ],
+    "outputs": [
+      { "name": "", "type": "uint256" }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getUserDetailedPayoutReceipts",
+    "inputs": [
+      { "name": "user", "type": "address" },
+      { "name": "offset", "type": "uint256" },
+      { "name": "limit", "type": "uint256" }
+    ],
+    "outputs": [
+      {
+        "name": "receipts",
+        "type": "tuple[]",
+        "components": [
+          { "name": "activationId", "type": "uint256" },
+          { "name": "receiptType", "type": "uint8" },
+          { "name": "level", "type": "uint8" },
+          { "name": "timestamp", "type": "uint40" },
+          { "name": "receiver", "type": "address" },
+          { "name": "fromUser", "type": "address" },
+          { "name": "orbitOwner", "type": "address" },
+          { "name": "sourcePosition", "type": "uint8" },
+          { "name": "sourceCycle", "type": "uint32" },
+          { "name": "mirroredPosition", "type": "uint8" },
+          { "name": "mirroredCycle", "type": "uint32" },
+          { "name": "routedRole", "type": "uint8" },
+          { "name": "grossAmount", "type": "uint256" },
+          { "name": "escrowLocked", "type": "uint256" },
+          { "name": "liquidPaid", "type": "uint256" }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getActivationDetailedPayoutReceiptCount",
+    "inputs": [
+      { "name": "activationId", "type": "uint256" }
+    ],
+    "outputs": [
+      { "name": "", "type": "uint256" }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getActivationDetailedPayoutReceipts",
+    "inputs": [
+      { "name": "activationId", "type": "uint256" },
+      { "name": "offset", "type": "uint256" },
+      { "name": "limit", "type": "uint256" }
+    ],
+    "outputs": [
+      {
+        "name": "receipts",
+        "type": "tuple[]",
+        "components": [
+          { "name": "activationId", "type": "uint256" },
+          { "name": "receiptType", "type": "uint8" },
+          { "name": "level", "type": "uint8" },
+          { "name": "timestamp", "type": "uint40" },
+          { "name": "receiver", "type": "address" },
+          { "name": "fromUser", "type": "address" },
+          { "name": "orbitOwner", "type": "address" },
+          { "name": "sourcePosition", "type": "uint8" },
+          { "name": "sourceCycle", "type": "uint32" },
+          { "name": "mirroredPosition", "type": "uint8" },
+          { "name": "mirroredCycle", "type": "uint32" },
+          { "name": "routedRole", "type": "uint8" },
+          { "name": "grossAmount", "type": "uint256" },
+          { "name": "escrowLocked", "type": "uint256" },
+          { "name": "liquidPaid", "type": "uint256" }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "anonymous": false,
+    "type": "event",
+    "name": "DetailedPayoutReceiptRecorded",
+    "inputs": [
+      { "indexed": true, "name": "receiver", "type": "address" },
+      { "indexed": true, "name": "activationId", "type": "uint256" },
+      { "indexed": true, "name": "level", "type": "uint8" },
+      { "indexed": false, "name": "receiptType", "type": "uint8" },
+      { "indexed": false, "name": "fromUser", "type": "address" },
+      { "indexed": false, "name": "orbitOwner", "type": "address" },
+      { "indexed": false, "name": "sourcePosition", "type": "uint8" },
+      { "indexed": false, "name": "sourceCycle", "type": "uint32" },
+      { "indexed": false, "name": "mirroredPosition", "type": "uint8" },
+      { "indexed": false, "name": "mirroredCycle", "type": "uint32" },
+      { "indexed": false, "name": "routedRole", "type": "uint8" },
+      { "indexed": false, "name": "grossAmount", "type": "uint256" },
+      { "indexed": false, "name": "escrowLocked", "type": "uint256" },
+      { "indexed": false, "name": "liquidPaid", "type": "uint256" }
+    ]
+  },
+  {
+    "anonymous": false,
+    "type": "event",
+    "name": "PayoutReceiptRecorded",
+    "inputs": [
+      { "indexed": true, "name": "receiver", "type": "address" },
+      { "indexed": true, "name": "level", "type": "uint8" },
+      { "indexed": true, "name": "receiptType", "type": "uint8" },
+      { "indexed": false, "name": "fromUser", "type": "address" },
+      { "indexed": false, "name": "orbitOwner", "type": "address" },
+      { "indexed": false, "name": "grossAmount", "type": "uint256" },
+      { "indexed": false, "name": "escrowLocked", "type": "uint256" },
+      { "indexed": false, "name": "liquidPaid", "type": "uint256" }
+    ]
+  },
+  {
+    "anonymous": false,
+    "type": "event",
+    "name": "LevelActivated",
+    "inputs": [
+      { "indexed": true, "name": "user", "type": "address" },
+      { "indexed": false, "name": "level", "type": "uint8" },
+      { "indexed": false, "name": "amount", "type": "uint256" }
+    ]
+  },
+  {
+    "anonymous": false,
+    "type": "event",
+    "name": "AutoUpgradeTriggered",
+    "inputs": [
+      { "indexed": true, "name": "user", "type": "address" },
+      { "indexed": false, "name": "fromLevel", "type": "uint8" },
+      { "indexed": false, "name": "toLevel", "type": "uint8" }
+    ]
+  },
+  {
+    "anonymous": false,
+    "type": "event",
+    "name": "FounderRepActivated",
+    "inputs": [
+      { "indexed": true, "name": "user", "type": "address" },
+      { "indexed": false, "name": "level", "type": "uint8" },
+      { "indexed": false, "name": "totalActivated", "type": "uint8" }
+    ]
+  },
+  {
+    "anonymous": false,
+    "type": "event",
+    "name": "SystemChargeDistributed",
+    "inputs": [
+      { "indexed": false, "name": "nftPoolAmount", "type": "uint256" },
+      { "indexed": false, "name": "operationsAmount", "type": "uint256" }
+    ]
+  }
+]
