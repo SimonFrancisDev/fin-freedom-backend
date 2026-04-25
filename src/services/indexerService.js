@@ -98,7 +98,7 @@ const targetBackoffUntil = new Map();
 const cycleTracker = new Map();
 
 const LIVE_TAIL_ENABLED = true;
-const LIVE_TAIL_WINDOW_BLOCKS = 120;
+const LIVE_TAIL_WINDOW_BLOCKS =20;
 const LIVE_TAIL_TARGET_KEYS = new Set([
   'registration',
   'levelManager',
@@ -106,7 +106,7 @@ const LIVE_TAIL_TARGET_KEYS = new Set([
   'p12Orbit',
   'p39Orbit',
 ]);
-const LIVE_TAIL_EVERY_N_PASSES = 1;
+const LIVE_TAIL_EVERY_N_PASSES = 5;
 const LIVE_TAIL_MAX_CHUNK_SIZE = 3;
 const INTER_TARGET_DELAY_MS = 0;
 const IMMEDIATE_PASS_DEBOUNCE_MS = 50;
