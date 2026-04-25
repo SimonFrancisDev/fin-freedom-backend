@@ -150,7 +150,7 @@ function getTargetChunkSize(targetKey, syncChunkSize) {
   return Math.max(1, Math.min(preferred[targetKey] || safeBase, safeBase));
 }
 
-async function getBlockCached(blockNumber) {
+export async function getBlockCached(blockNumber) {
   const key = Number(blockNumber);
 
   if (blockCache.has(key)) {
@@ -220,7 +220,7 @@ async function getCurrentCycleForOrbit(orbitType, orbitOwner, level) {
   return currentCycle;
 }
 
-async function saveReceiptLog(chainId, log, parsed, block) {
+export async function saveReceiptLog(chainId, log, parsed, block) {
   const args = parsed.args;
 
   await IndexedReceipt.updateOne(
@@ -263,7 +263,7 @@ async function saveReceiptLog(chainId, log, parsed, block) {
   });
 }
 
-async function saveRegistrationLog(chainId, contractAddress, log, parsed, block) {
+export async function saveRegistrationLog(chainId, contractAddress, log, parsed, block) {
   const args = parsed.args || {};
 
   await IndexedRegistrationEvent.updateOne(
@@ -303,7 +303,7 @@ async function saveRegistrationLog(chainId, contractAddress, log, parsed, block)
   });
 }
 
-async function saveOrbitLog(chainId, orbitType, contractAddress, log, parsed, block) {
+export async function saveOrbitLog(chainId, orbitType, contractAddress, log, parsed, block) {
   const args = parsed.args || {};
   const eventName = parsed.name;
 

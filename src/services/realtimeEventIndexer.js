@@ -1,9 +1,19 @@
-import { Contract } from 'ethers';
-import { getWsProvider, safeRpcCall } from '../blockchain/provider.js';
+import { Contract, WebSocketProvider } from 'ethers';
+import env from '../config/env.js';
+import { safeRpcCall } from '../blockchain/provider.js';
 import { getContracts } from '../blockchain/contracts.js';
+
+import {
+  getBlockCached,
+  saveReceiptLog,
+  saveRegistrationLog,
+  saveOrbitLog,
+} from './indexerService.js';
 
 let realtimeStarted = false;
 let activeListeners = [];
+
+
 
 function buildErrorMessage(error) {
   return (
@@ -19,33 +29,158 @@ function buildErrorMessage(error) {
   ).trim();
 }
 
-function getWsContract(httpContract) {
-  const wsProvider = getWsProvider();
 
-  if (!wsProvider) {
-    return null;
+async function getChainId() {
+  const network = await safeRpcCall((provider) => provider.getNetwork());
+  return Number(network.chainId);
+}
+
+function normalizeLog(eventPayload) {
+  const log = eventPayload?.log || eventPayload;
+
+  return {
+    ...log,
+    index: Number(log?.index ?? log?.logIndex ?? -1),
+    logIndex: Number(log?.index ?? log?.logIndex ?? -1),
+  };
+}
+
+function getOrbitType(label) {
+  if (label === 'p4Orbit') return 'P4';
+  if (label === 'p12Orbit') return 'P12';
+  if (label === 'p39Orbit') return 'P39';
+  return null;
+}
+
+
+// function getWsContract(httpContract) {
+//   const wsProvider = getWsProvider();
+
+//   if (!wsProvider) {
+//     return null;
+//   }
+
+//   return new Contract(httpContract.target, httpContract.interface, wsProvider);
+// }
+
+
+let stableWsProvider = null;
+
+function getStableWsProvider() {
+  if (stableWsProvider) return stableWsProvider;
+
+  const wsUrls = String(env.WS_RPC_URLS || '')
+    .split(',')
+    .map((url) => url.trim())
+    .filter(Boolean);
+
+  if (wsUrls.length === 0) {
+    throw new Error('WS_RPC_URLS is not configured');
   }
 
+  stableWsProvider = new WebSocketProvider(wsUrls[0], {
+    chainId: Number(env.CHAIN_ID),
+    name: `chain-${env.CHAIN_ID}`,
+  });
+
+  console.log('[REALTIME_STABLE_WS_CREATED]', { url: wsUrls[0] });
+
+  return stableWsProvider;
+}
+
+function getWsContract(httpContract) {
+  const wsProvider = getStableWsProvider();
   return new Contract(httpContract.target, httpContract.interface, wsProvider);
 }
 
 function attachListener(contract, eventName, label) {
   if (!contract) return;
 
-  const handler = (...args) => {
-    const eventPayload = args[args.length - 1];
+  // const handler = (...args) => {
+  //   const eventPayload = args[args.length - 1];
 
-    console.log('[REALTIME_EVENT_RECEIVED]', {
+  //   console.log('[REALTIME_EVENT_RECEIVED]', {
+  //     label,
+  //     eventName,
+  //     blockNumber: Number(eventPayload?.log?.blockNumber || eventPayload?.blockNumber || 0),
+  //     txHash: eventPayload?.log?.transactionHash || eventPayload?.transactionHash || '',
+  //     logIndex: Number(eventPayload?.log?.index ?? eventPayload?.logIndex ?? -1),
+  //   });
+
+  //   // For now: detection only.
+  //   // Next step: we will safely save this event using existing indexer logic.
+  // };
+
+
+
+  const handler = async (...args) => {
+  const eventPayload = args[args.length - 1];
+  const log = normalizeLog(eventPayload);
+
+  console.log('[REALTIME_EVENT_RECEIVED]', {
+    label,
+    eventName,
+    blockNumber: Number(log?.blockNumber || 0),
+    txHash: log?.transactionHash || '',
+    logIndex: Number(log?.index ?? -1),
+  });
+
+  try {
+    const chainId = await getChainId();
+    const block = await getBlockCached(log.blockNumber);
+
+    if (!block) {
+      throw new Error(`[REALTIME_MISSING_BLOCK] ${eventName} ${log.transactionHash}:${log.index}`);
+    }
+
+    const parsed = contract.interface.parseLog(log);
+
+    if (!parsed) {
+      return;
+    }
+
+    if (label === 'registration' && ['Registered', 'LevelActivated'].includes(parsed.name)) {
+      await saveRegistrationLog(chainId, contract.target, log, parsed, block);
+    }
+
+    if (label === 'levelManager' && parsed.name === 'DetailedPayoutReceiptRecorded') {
+      await saveReceiptLog(chainId, log, parsed, block);
+    }
+
+    const orbitType = getOrbitType(label);
+
+    if (
+      orbitType &&
+      [
+        'PositionFilled',
+        'OrbitReset',
+        'LinePaymentTracked',
+        'PaymentRuleApplied',
+        'SpilloverPaid',
+        'EscrowUpdated',
+        'AutoUpgradeTriggered',
+      ].includes(parsed.name)
+    ) {
+      await saveOrbitLog(chainId, orbitType, contract.target, log, parsed, block);
+    }
+
+    console.log('[REALTIME_EVENT_SAVED]', {
+      label,
+      eventName: parsed.name,
+      txHash: log.transactionHash,
+      logIndex: log.index,
+      blockNumber: log.blockNumber,
+    });
+  } catch (error) {
+    console.error('[REALTIME_EVENT_SAVE_FAILED]', {
       label,
       eventName,
-      blockNumber: Number(eventPayload?.log?.blockNumber || eventPayload?.blockNumber || 0),
-      txHash: eventPayload?.log?.transactionHash || eventPayload?.transactionHash || '',
-      logIndex: Number(eventPayload?.log?.index ?? eventPayload?.logIndex ?? -1),
+      txHash: log?.transactionHash || '',
+      logIndex: Number(log?.index ?? -1),
+      message: buildErrorMessage(error),
     });
-
-    // For now: detection only.
-    // Next step: we will safely save this event using existing indexer logic.
-  };
+  }
+};
 
   contract.on(eventName, handler);
 
