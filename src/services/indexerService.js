@@ -2,6 +2,7 @@ import SyncState from '../models/SyncState.js';
 import IndexedReceipt from '../models/IndexedReceipt.js';
 import IndexedOrbitEvent from '../models/IndexedOrbitEvent.js';
 import IndexedRegistrationEvent from '../models/IndexedRegistrationEvent.js';
+import IndexedTokenEvent from '../models/IndexedTokenEvent.js'; 
 import {
   safeRpcCall,
   getProviderHealthSnapshot,
@@ -105,6 +106,8 @@ const LIVE_TAIL_TARGET_KEYS = new Set([
   'p4Orbit',
   'p12Orbit',
   'p39Orbit',
+  'fgtToken',
+  'fgtrToken'
 ]);
 const LIVE_TAIL_EVERY_N_PASSES = 5;
 const LIVE_TAIL_MAX_CHUNK_SIZE = 3;
@@ -445,6 +448,48 @@ export async function saveOrbitLog(chainId, orbitType, contractAddress, log, par
   });
 }
 
+
+
+export async function saveTokenLog(chainId, tokenSymbol, log, parsed, block) {
+  const args = parsed.args || {};
+  const user = toLower(args.to || args.from || args.user || '');
+  const reason = args.reason || '';
+
+  // EXTRACTION LOGIC: Pull level from the reason string (e.g., "manualActivation:2")
+  let level = 0;
+  if (reason.includes(':')) {
+    const parts = reason.split(':');
+    level = Number(parts[1]) || 0;
+  }
+
+  await IndexedTokenEvent.updateOne(
+    { txHash: toLower(log.transactionHash), logIndex: log.index },
+    {
+      $setOnInsert: {
+        chainId,
+        tokenSymbol,
+        eventName: parsed.name,
+        txHash: toLower(log.transactionHash),
+        logIndex: log.index,
+        blockNumber: log.blockNumber,
+        userAddress: user,
+        amount: stringifyBigInt(args.amount || 0),
+        reason: reason, // Stores the full string like "manualActivation:2"
+        level: level,  // New field to make filtering easy
+        timestamp: toDateFromSeconds(block.timestamp),
+      },
+    },
+    { upsert: true }
+  );
+
+    logDebug('[SAVED_TOKEN_EVENT]', {
+    token: tokenSymbol,
+    eventName: parsed.name,
+    user,
+    txHash: toLower(log.transactionHash)
+  });
+}
+
 async function processLogsForContract({
   contract,
   contractKey,
@@ -513,6 +558,14 @@ async function processLogsForContract({
       throw new Error(
         `[MISSING_BLOCK_FOR_LOG] ${contractKey} ${log.transactionHash}:${log.index} block ${log.blockNumber}`
       );
+    }
+
+    if (['fgtToken', 'fgtrToken'].includes(contractKey)) {
+      if (['UtilityMinted', 'UtilityBurned', 'UtilityLocked'].includes(parsed.name)) {
+        const symbol = contractKey === 'fgtToken' ? 'FGT' : 'FGTr';
+        await saveTokenLog(chainId, symbol, log, parsed, block);
+        continue;
+      }
     }
 
     if (
@@ -596,6 +649,24 @@ function buildTargets(contracts, starts, sync) {
       orbitType: 'P39',
       chunkSize: getTargetChunkSize('p39Orbit', sync.chunkSize),
       priority: 5,
+    },
+    {
+      key: 'fgtToken',
+      contract: contracts.fgtToken,
+      address: contracts.fgtToken.target,
+      startBlock: starts.fgtToken ?? starts.registration,
+      orbitType: null,
+      chunkSize: getTargetChunkSize('levelManager', sync.chunkSize), // Use levelManager size as a safe base
+      priority: 6,
+    },
+    {
+      key: 'fgtrToken',
+      contract: contracts.fgtrToken,
+      address: contracts.fgtrToken.target,
+      startBlock: starts.fgtrToken ?? starts.registration,
+      orbitType: null,
+      chunkSize: getTargetChunkSize('levelManager', sync.chunkSize),
+      priority: 7,
     },
   ];
 }

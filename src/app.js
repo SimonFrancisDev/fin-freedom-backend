@@ -13,6 +13,7 @@ import orbitRoutes from './routes/orbitRoutes.js';
 import communityRoutes from './routes/communityRoutes.js';
 import adminCommunityRoutes from './routes/adminCommunityRoutes.js';
 import supportRoutes from './routes/supportRoutes.js';
+import referralRoutes from './routes/referralRoutes.js';
 
 const app = express();
 
@@ -86,6 +87,7 @@ app.use('/api/orbits', orbitRoutes);
 app.use('/api/community', communityRoutes);
 app.use('/api/admin/community', adminCommunityRoutes);
 app.use('/api/support', supportRoutes);
+app.use('/api/referral', referralRoutes);
 
 app.use((req, res) => {
   res.status(404).json({

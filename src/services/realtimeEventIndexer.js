@@ -8,6 +8,7 @@ import {
   saveReceiptLog,
   saveRegistrationLog,
   saveOrbitLog,
+  saveTokenLog,
 } from './indexerService.js';
 
 let realtimeStarted = false;
@@ -147,6 +148,13 @@ function attachListener(contract, eventName, label) {
       await saveReceiptLog(chainId, log, parsed, block);
     }
 
+    if (label === 'fgtToken' || label === 'fgtrToken') {
+      if (['UtilityMinted', 'UtilityBurned', 'UtilityLocked'].includes(parsed.name)) {
+        const symbol = label === 'fgtToken' ? 'FGT' : 'FGTr';
+        await saveTokenLog(chainId, symbol, log, parsed, block);
+      }
+    }
+
     const orbitType = getOrbitType(label);
 
     if (
@@ -217,6 +225,8 @@ export async function startRealtimeEventIndexer() {
     p4Orbit: getWsContract(contracts.p4Orbit),
     p12Orbit: getWsContract(contracts.p12Orbit),
     p39Orbit: getWsContract(contracts.p39Orbit),
+    fgtToken: getWsContract(contracts.fgtToken),   // <--- ADD THIS
+    fgtrToken: getWsContract(contracts.fgtrToken)
   };
 
   if (!wsContracts.registration && !wsContracts.levelManager) {
@@ -252,10 +262,21 @@ export async function startRealtimeEventIndexer() {
     listeners: activeListeners.length,
   });
 
+
+   for (const label of ['fgtToken', 'fgtrToken']) {
+    const contract = wsContracts[label];
+    if (contract) {
+      attachListener(contract, 'UtilityMinted', label);
+      attachListener(contract, 'UtilityBurned', label);
+      attachListener(contract, 'UtilityLocked', label);
+    }
+  }
+
   return {
     ok: true,
     listeners: activeListeners.length,
   };
+
 }
 
 export function stopRealtimeEventIndexer() {

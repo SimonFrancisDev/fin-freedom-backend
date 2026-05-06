@@ -29,6 +29,44 @@ function setCache(key, value, ttlMs = CACHE_TTL_MS) {
   });
 }
 
+
+async function fetchTreasuryBreakdown(contracts) {
+  const usdt = contracts?.usdt
+  const levelManager = contracts?.levelManager
+
+  if (!usdt || !levelManager) {
+    return {
+      nftPool: '0.00',
+      operations: '0.00',
+    }
+  }
+
+  try {
+    const nftPoolAddress = await safeRpcCall(() =>
+      levelManager.nftPool()
+    )
+
+    const opsAddress = await safeRpcCall(() =>
+      levelManager.operationsWallet()
+    )
+
+    const [nftRaw, opsRaw] = await Promise.all([
+      safeBalanceOf(usdt, nftPoolAddress),
+      safeBalanceOf(usdt, opsAddress),
+    ])
+
+    return {
+      nftPool: formatUsdt(nftRaw),
+      operations: formatUsdt(opsRaw),
+    }
+  } catch {
+    return {
+      nftPool: '0.00',
+      operations: '0.00',
+    }
+  }
+}
+
 async function cached(key, fn, ttlMs = CACHE_TTL_MS) {
   const existing = getCache(key);
   if (existing) return existing;
@@ -144,14 +182,17 @@ async function fetchVisibleCoreBalance(contracts) {
     : onChainBalanceRaw;
 }
 
+
+
 export async function fetchCommunitySummary() {
   return cached('community:summary', async () => {
     const contracts = getContracts();
 
-    const [totalParticipants, visibleCoreBalanceRaw, announcementCount, eventCount, socialCount, resourceCount, receiptCount] =
+    const [totalParticipants, visibleCoreBalanceRaw,  treasury, announcementCount, eventCount, socialCount, resourceCount, receiptCount] =
       await Promise.all([
         fetchTotalParticipants(contracts),
         fetchVisibleCoreBalance(contracts),
+        fetchTreasuryBreakdown(contracts), 
         CommunityAnnouncement.countDocuments({ isActive: true }).catch(() => 0),
         CommunityEvent.countDocuments({ isActive: true }).catch(() => 0),
         CommunitySocialLink.countDocuments({ isActive: true }).catch(() => 0),
@@ -159,21 +200,40 @@ export async function fetchCommunitySummary() {
         IndexedReceipt.countDocuments().catch(() => 0),
       ]);
 
+    // return {
+    //   public: {
+    //     totalParticipants,
+    //     visibleCoreBalanceUsdt: formatUsdt(visibleCoreBalanceRaw),
+    //     readLayerStatus: totalParticipants > 0 ? 'Live' : 'Syncing',
+    //   },
+    //   feeds: {
+    //     announcements: announcementCount > 0 ? 'live' : 'unavailable',
+    //     events: eventCount > 0 ? 'live' : 'unavailable',
+    //     socialLinks: socialCount > 0 ? 'live' : 'unavailable',
+    //     resources: resourceCount > 0 ? 'live' : 'unavailable',
+    //     leaderboard: receiptCount > 0 ? 'live' : 'unavailable',
+    //     growth: totalParticipants > 0 ? 'live' : 'unavailable',
+    //   },
+    // };
     return {
-      public: {
-        totalParticipants,
-        visibleCoreBalanceUsdt: formatUsdt(visibleCoreBalanceRaw),
-        readLayerStatus: totalParticipants > 0 ? 'Live' : 'Syncing',
-      },
-      feeds: {
-        announcements: announcementCount > 0 ? 'live' : 'unavailable',
-        events: eventCount > 0 ? 'live' : 'unavailable',
-        socialLinks: socialCount > 0 ? 'live' : 'unavailable',
-        resources: resourceCount > 0 ? 'live' : 'unavailable',
-        leaderboard: receiptCount > 0 ? 'live' : 'unavailable',
-        growth: totalParticipants > 0 ? 'live' : 'unavailable',
-      },
-    };
+        public: {
+          totalParticipants,
+          visibleCoreBalanceUsdt: formatUsdt(visibleCoreBalanceRaw),
+
+          nftPool: treasury?.nftPool || '0.00',
+          operations: treasury?.operations || '0.00',
+
+          readLayerStatus: totalParticipants > 0 ? 'Live' : 'Syncing',
+        },
+        feeds: {
+          announcements: announcementCount > 0 ? 'live' : 'unavailable',
+          events: eventCount > 0 ? 'live' : 'unavailable',
+          socialLinks: socialCount > 0 ? 'live' : 'unavailable',
+          resources: resourceCount > 0 ? 'live' : 'unavailable',
+          leaderboard: receiptCount > 0 ? 'live' : 'unavailable',
+          growth: totalParticipants > 0 ? 'live' : 'unavailable',
+        },
+      }
   });
 }
 
@@ -228,6 +288,12 @@ export async function fetchCommunityResources() {
     };
   });
 }
+
+
+
+
+
+
 
 
 
