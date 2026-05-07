@@ -822,8 +822,15 @@ function shapeIndexedReceipts(receipts) {
   }));
 }
 
+// FIX 4: Safest findBestIndexedPositionFilledEvent
 function findBestIndexedPositionFilledEvent(indexedEvents = []) {
-  return indexedEvents.find((event) => event.eventName === 'PositionFilled') || null;
+  const sorted = [...indexedEvents].sort(
+    (a, b) =>
+      Number(a.blockNumber || 0) - Number(b.blockNumber || 0) ||
+      Number(a.logIndex || 0) - Number(b.logIndex || 0)
+  );
+
+  return sorted.length > 0 ? sorted[sorted.length - 1] : null;
 }
 
 function findActivationIdFromIndexedReceipts(
@@ -857,25 +864,15 @@ async function fetchIndexedReceiptsForHistoricalPosition(
     .lean();
 }
 
-async function getIndexedOrbitEventsGrouped(orbitOwner, level) {
-  const docs = await IndexedOrbitEvent.find({
+// FIX 1: Replace unsafe grouped event function
+async function getIndexedOrbitEventsForLevel(orbitOwner, level, orbitType) {
+  return IndexedOrbitEvent.find({
     orbitOwner: orbitOwner.toLowerCase(),
     level,
+    orbitType,
   })
     .sort({ blockNumber: 1, logIndex: 1 })
     .lean();
-
-  const byPosition = new Map();
-
-  for (const doc of docs) {
-    const pos = Number(doc.position || 0);
-    if (!byPosition.has(pos)) {
-      byPosition.set(pos, []);
-    }
-    byPosition.get(pos).push(doc);
-  }
-
-  return byPosition;
 }
 
 async function getLatestIndexedActivityForLevel(address, level, orbitType) {
@@ -1023,8 +1020,13 @@ async function buildLivePositionSnapshot(address, level, positionNumber, preload
     fetchLiveRuleView(orbitContract, normalizedAddress, level, positionNumber),
   ]);
 
-  const indexedEvents =
-    preloaded.indexedEventsByPosition?.get(positionNumber) || [];
+  // FIX 2: Live position event filtering
+  const indexedEvents = (preloaded.allIndexedEvents || []).filter(
+    (event) =>
+      event.eventName === 'PositionFilled' &&
+      Number(event.position || 0) === Number(positionNumber)
+  );
+  
   const occupant =
     position?.[0] && position[0] !== ethers.ZeroAddress ? position[0] : null;
   const indexedReceipts = await fetchIndexedReceiptsForActivation(
@@ -1068,8 +1070,13 @@ async function buildHistoricalPositionSnapshot(
   const normalizedAddress = normalizeAddress(address);
   const { orbitType, orbitContract } = await getOrbitContext(level);
 
-  const indexedEvents =
-    preloaded.indexedEventsByPosition?.get(positionNumber) || [];
+  // FIX 3: Historical position event filtering
+  const indexedEvents = (preloaded.allIndexedEvents || []).filter(
+    (event) =>
+      event.eventName === 'PositionFilled' &&
+      Number(event.position || 0) === Number(positionNumber) &&
+      Number(event.cycleNumber || 0) === Number(cycleNumber)
+  );
 
   const indexedReceiptsForPosition =
     await fetchIndexedReceiptsForHistoricalPosition(
@@ -1615,7 +1622,6 @@ export const getEarningsPerLevel = async (address) => {
     { $sort: { _id: 1 } }
   ]);
 };
-
 
 
 
@@ -2894,19 +2900,29 @@ export const getEarningsPerLevel = async (address) => {
 //       const isStale = isSnapshotStale(snapshot, LEVEL_SNAPSHOT_TTL_MS);
 
 //       if (isMissing) {
-//         refreshLevelSnapshotInBackground(normalizedAddress, level);
-        
-//         return {
+//         logDebug('[LEVEL_SNAPSHOT_MISSING_REBUILD]', {
 //           address: normalizedAddress,
 //           level,
-//           orbitType,
-//           isLevelActive: false,
-//           orbitSummary: {},
-//           linePaymentCounts: {},
-//           lockedForNextLevel: '0',
-//           positions: [],
-//           isFallback: true,
-//         };
+//         });
+
+//         snapshot = await rebuildAndEnrichLevelSnapshot(
+//           normalizedAddress,
+//           level
+//         );
+
+//         if (!snapshot) {
+//           return {
+//             address: normalizedAddress,
+//             level,
+//             orbitType,
+//             isLevelActive: false,
+//             orbitSummary: {},
+//             linePaymentCounts: {},
+//             lockedForNextLevel: '0',
+//             positions: [],
+//             isFallback: true,
+//           };
+//         }
 //       }
 
 //       if (isIncomplete || hasNewIndexedActivity || isStale) {
@@ -2975,32 +2991,44 @@ export const getEarningsPerLevel = async (address) => {
 //       const isStale = isSnapshotStale(snapshot, POSITION_SNAPSHOT_TTL_MS);
 
 //       if (isMissing) {
-//         refreshPositionSnapshotInBackground(normalizedAddress, level, position);
-        
-//         return {
+//         logDebug('[POSITION_SNAPSHOT_MISSING_REBUILD]', {
 //           address: normalizedAddress,
 //           level,
 //           position,
-//           orbitType,
-//           number: position,
-//           line: getLineForPosition(orbitType, position),
-//           parentPosition: getStructuralParentPosition(orbitType, position),
-//           occupant: null,
-//           amount: '0.0',
-//           timestamp: 0,
-//           activationId: 0,
-//           activationCycleNumber: 0,
-//           isMirrorActivation: false,
-//           truthLabel: 'NO_RECEIPT',
-//           indexedEventCount: 0,
-//           indexedReceiptCount: 0,
-//           receiptTotals: buildEmptyReceiptTotals(),
-//           viewerReceiptBreakdown: buildEmptyViewerBreakdown(),
-//           indexedReceipts: [],
-//           indexedEvents: [],
-//           ruleView: null,
-//           isFallback: true,
-//         };
+//         });
+
+//         snapshot = await rebuildPositionSnapshot(
+//           normalizedAddress,
+//           level,
+//           position
+//         );
+
+//         if (!snapshot) {
+//           return {
+//             address: normalizedAddress,
+//             level,
+//             position,
+//             orbitType,
+//             number: position,
+//             line: getLineForPosition(orbitType, position),
+//             parentPosition: getStructuralParentPosition(orbitType, position),
+//             occupant: null,
+//             amount: '0.0',
+//             timestamp: 0,
+//             activationId: 0,
+//             activationCycleNumber: 0,
+//             isMirrorActivation: false,
+//             truthLabel: 'NO_RECEIPT',
+//             indexedEventCount: 0,
+//             indexedReceiptCount: 0,
+//             receiptTotals: buildEmptyReceiptTotals(),
+//             viewerReceiptBreakdown: buildEmptyViewerBreakdown(),
+//             indexedReceipts: [],
+//             indexedEvents: [],
+//             ruleView: null,
+//             isFallback: true,
+//           };
+//         }
 //       }
 
 //       if (isIncomplete || hasNewIndexedActivity || isStale) {
@@ -3054,8 +3082,6 @@ export const getEarningsPerLevel = async (address) => {
 //   truthLabel: 'NO_RECEIPT',
 //   indexedEventCount: 0,
 //   indexedReceiptCount: 0,
-//   // receiptTotals: null,
-//   // viewerReceiptBreakdown: null,
 //   receiptTotals: buildEmptyReceiptTotals(),
 //   viewerReceiptBreakdown: buildEmptyViewerBreakdown(),
 //   indexedReceipts: [],
@@ -3096,18 +3122,30 @@ export const getEarningsPerLevel = async (address) => {
 //       const isStale = isSnapshotStale(snapshot, CYCLE_SNAPSHOT_TTL_MS);
 
 //       if (isMissing) {
-//         refreshCycleSnapshotInBackground(normalizedAddress, level, cycleNumber);
-        
-//         return {
+//         logDebug('[CYCLE_SNAPSHOT_MISSING_REBUILD]', {
 //           address: normalizedAddress,
 //           level,
 //           cycleNumber,
-//           orbitType,
-//           filledPositions: [],
-//           totalPositions: getOrbitPositionCount(orbitType),
-//           positions: [],
-//           isFallback: true,
-//         };
+//         });
+
+//         snapshot = await rebuildCycleSnapshot(
+//           normalizedAddress,
+//           level,
+//           cycleNumber
+//         );
+
+//         if (!snapshot) {
+//           return {
+//             address: normalizedAddress,
+//             level,
+//             cycleNumber,
+//             orbitType,
+//             filledPositions: [],
+//             totalPositions: getOrbitPositionCount(orbitType),
+//             positions: [],
+//             isFallback: true,
+//           };
+//         }
 //       }
 
 //       if (isIncomplete || hasNewIndexedActivity || isStale) {
@@ -3140,9 +3178,6 @@ export const getEarningsPerLevel = async (address) => {
 //   positions: [],
 //   isFallback: true
 // });
-
-
-
 
 // export const fetchUserGlobalSummary = safeApiResponse(async function(address) {
 //   const normalizedAddress = normalizeAddress(address);
@@ -3199,7 +3234,6 @@ export const getEarningsPerLevel = async (address) => {
 //   };
 // }, {});
 
-
 // export const getEarningsPerLevel = async (address) => {
 //   const normalized = address.toLowerCase();
 
@@ -3216,3 +3250,4 @@ export const getEarningsPerLevel = async (address) => {
 //     { $sort: { _id: 1 } }
 //   ]);
 // };
+
