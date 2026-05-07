@@ -470,36 +470,13 @@ function countFilledPositions(positions = []) {
   return positions.filter((position) => !!position?.occupant).length;
 }
 
-// function shouldPreserveExistingCycleSnapshot({
-//   existingSnapshot,
-//   rebuiltPositions,
-//   cycleEvents,
-//   cycleReceipts,
-// }) {
-//   if (!existingSnapshot?.positions?.length) return false;
-
-//   const existingFilled = countFilledPositions(existingSnapshot.positions);
-//   const rebuiltFilled = countFilledPositions(rebuiltPositions);
-
-//   if (existingFilled === 0) return false;
-//   if (rebuiltFilled >= existingFilled) return false;
-
-//   const rebuiltHasNoSignal =
-//     (cycleEvents?.length || 0) === 0 &&
-//     (cycleReceipts?.length || 0) === 0;
-
-//   if (rebuiltHasNoSignal) return true;
-//   if (rebuiltFilled === 0 && existingFilled > 0) return true;
-
-//   return false;
-// }
-
 
 // function shouldPreserveExistingCycleSnapshot({
 //   existingSnapshot,
 //   rebuiltPositions,
 //   cycleEvents,
 //   cycleReceipts,
+//   boundary,
 // }) {
 //   if (!existingSnapshot?.positions?.length) return false;
 
@@ -509,13 +486,14 @@ function countFilledPositions(positions = []) {
 
 //   if (existingFilled === 0) return false;
 //   if (rebuiltFilled >= existingFilled) return false;
-
-//   // Never preserve older cycle snapshot when rebuild shows full cycle
 //   if (rebuiltFilled === totalPositions && totalPositions > 0) return false;
 
 //   const rebuiltHasNoSignal =
 //     (cycleEvents?.length || 0) === 0 &&
 //     (cycleReceipts?.length || 0) === 0;
+
+//   // If we have a real reset boundary, trust rebuilt chain-derived data.
+//   if (boundary) return false;
 
 //   if (rebuiltHasNoSignal) return true;
 //   if (rebuiltFilled === 0 && existingFilled > 0) return true;
@@ -523,34 +501,56 @@ function countFilledPositions(positions = []) {
 //   return false;
 // }
 
+
 function shouldPreserveExistingCycleSnapshot({
   existingSnapshot,
   rebuiltPositions,
   cycleEvents,
   cycleReceipts,
   boundary,
+  cycleNumber,
 }) {
-  if (!existingSnapshot?.positions?.length) return false;
+  if (!existingSnapshot?.positions?.length) {
+    return false;
+  }
 
-  const existingFilled = countFilledPositions(existingSnapshot.positions);
-  const rebuiltFilled = countFilledPositions(rebuiltPositions);
-  const totalPositions = rebuiltPositions.length;
+  const existingFilled =
+    countFilledPositions(existingSnapshot.positions);
 
-  if (existingFilled === 0) return false;
-  if (rebuiltFilled >= existingFilled) return false;
-  if (rebuiltFilled === totalPositions && totalPositions > 0) return false;
+  const rebuiltFilled =
+    countFilledPositions(rebuiltPositions);
 
-  const rebuiltHasNoSignal =
-    (cycleEvents?.length || 0) === 0 &&
-    (cycleReceipts?.length || 0) === 0;
+  if (existingFilled === 0) {
+    return false;
+  }
 
-  // If we have a real reset boundary, trust rebuilt chain-derived data.
-  if (boundary) return false;
+  // Rebuild is already equal or better
+  if (rebuiltFilled >= existingFilled) {
+    return false;
+  }
 
-  if (rebuiltHasNoSignal) return true;
-  if (rebuiltFilled === 0 && existingFilled > 0) return true;
+  // Never preserve if reset boundary exists
+  if (boundary) {
+    return false;
+  }
 
-  return false;
+  // Never preserve if chain data exists
+  if (
+    (cycleEvents?.length || 0) > 0 ||
+    (cycleReceipts?.length || 0) > 0
+  ) {
+    return false;
+  }
+
+  // Never preserve wrong cycle
+  const existingCycle =
+    Number(existingSnapshot.cycleNumber || 0);
+
+  if (existingCycle !== cycleNumber) {
+    return false;
+  }
+
+  return true;
 }
 
 function preserveExistingCycleSnapshot({

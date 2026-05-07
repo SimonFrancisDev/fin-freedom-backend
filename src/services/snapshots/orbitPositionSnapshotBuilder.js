@@ -448,22 +448,34 @@ function hasFilledSnapshot(snapshot) {
   return Boolean(snapshot?.occupant);
 }
 
+
+
 // function shouldPreserveExistingPositionSnapshot({
 //   existingSnapshot,
 //   rebuiltSnapshot,
 //   eventsForPosition,
 //   receiptsForPosition,
+//   lastReset,
 // }) {
 //   if (!hasFilledSnapshot(existingSnapshot)) return false;
+
+//   // If we already rebuilt a valid position → do not preserve
 //   if (hasFilledSnapshot(rebuiltSnapshot)) return false;
 
 //   const rebuiltHasNoSignal =
 //     (eventsForPosition?.length || 0) === 0 &&
 //     (receiptsForPosition?.length || 0) === 0;
 
+//   // 🔥 CRITICAL FIX:
+//   // If a reset has happened, NEVER preserve old data
+//   if (lastReset) return false;
+
+//   // Only preserve when NO reset and no new data
 //   if (rebuiltHasNoSignal) return true;
-//   return true;
+
+//   return false;
 // }
+
 
 function shouldPreserveExistingPositionSnapshot({
   existingSnapshot,
@@ -471,24 +483,42 @@ function shouldPreserveExistingPositionSnapshot({
   eventsForPosition,
   receiptsForPosition,
   lastReset,
+  currentCycleNumber,
 }) {
-  if (!hasFilledSnapshot(existingSnapshot)) return false;
+  if (!hasFilledSnapshot(existingSnapshot)) {
+    return false;
+  }
 
-  // If we already rebuilt a valid position → do not preserve
-  if (hasFilledSnapshot(rebuiltSnapshot)) return false;
+  // Never preserve if rebuild already has valid occupant
+  if (hasFilledSnapshot(rebuiltSnapshot)) {
+    return false;
+  }
 
-  const rebuiltHasNoSignal =
-    (eventsForPosition?.length || 0) === 0 &&
-    (receiptsForPosition?.length || 0) === 0;
+  // Never preserve across cycle transitions
+  const existingCycle =
+    Number(existingSnapshot.activationCycleNumber || 0);
 
-  // 🔥 CRITICAL FIX:
-  // If a reset has happened, NEVER preserve old data
-  if (lastReset) return false;
+  if (
+    currentCycleNumber > 1 &&
+    existingCycle !== currentCycleNumber
+  ) {
+    return false;
+  }
 
-  // Only preserve when NO reset and no new data
-  if (rebuiltHasNoSignal) return true;
+  // Never preserve if reset occurred
+  if (lastReset) {
+    return false;
+  }
 
-  return false;
+  // Never preserve if we already have chain evidence
+  if (
+    (eventsForPosition?.length || 0) > 0 ||
+    (receiptsForPosition?.length || 0) > 0
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 

@@ -552,72 +552,98 @@ function countFilledPositions(positions = []) {
 
 
 
-// function shouldPreserveExistingSnapshot({
-//   existingSnapshot,
-//   rebuiltPositions,
-//   currentEvents,
-//   currentReceipts,
-// }) {
-//   if (!existingSnapshot?.positions?.length) return false;
 
-//   const existingFilled = countFilledPositions(existingSnapshot.positions);
-//   const rebuiltFilled = countFilledPositions(rebuiltPositions);
-//   const totalPositions = rebuiltPositions.length;
 
-//   if (existingFilled === 0) return false;
+  // function shouldPreserveExistingSnapshot({
+  //   existingSnapshot,
+  //   rebuiltPositions,
+  //   currentEvents,
+  //   currentReceipts,
+  //   lastReset,
+  // }) {
+  //   if (!existingSnapshot?.positions?.length) return false;
 
-//   // Never preserve old snapshot when rebuild is equal or better
-//   if (rebuiltFilled >= existingFilled) return false;
+  //   const existingFilled = countFilledPositions(existingSnapshot.positions);
+  //   const rebuiltFilled = countFilledPositions(rebuiltPositions);
+  //   const totalPositions = rebuiltPositions.length;
 
-//   // Never preserve old snapshot when rebuild shows a fully completed orbit
-//   if (rebuiltFilled === totalPositions && totalPositions > 0) return false;
+  //   if (existingFilled === 0) return false;
 
-//   const rebuiltHasNoSignal =
-//     (currentEvents?.length || 0) === 0 &&
-//     (currentReceipts?.length || 0) === 0;
+  //   // Never preserve if rebuild is equal or better
+  //   if (rebuiltFilled >= existingFilled) return false;
 
-//   if (rebuiltHasNoSignal) return true;
+  //   // Never preserve if orbit is fully filled
+  //   if (rebuiltFilled === totalPositions && totalPositions > 0) return false;
 
-//   if (rebuiltFilled === 0 && existingFilled > 0) return true;
+  //   const rebuiltHasNoSignal =
+  //     (currentEvents?.length || 0) === 0 &&
+  //     (currentReceipts?.length || 0) === 0;
 
-//   return false;
-// }
+  //   // 🔥 CRITICAL FIX:
+  //   // If reset happened → DO NOT preserve old cycle data
+  //   if (lastReset) return false;
+
+  //   if (rebuiltHasNoSignal) return true;
+
+  //   if (rebuiltFilled === 0 && existingFilled > 0) return true;
+
+  //   return false;
+  // }
+
 
   function shouldPreserveExistingSnapshot({
-    existingSnapshot,
-    rebuiltPositions,
-    currentEvents,
-    currentReceipts,
-    lastReset,
-  }) {
-    if (!existingSnapshot?.positions?.length) return false;
-
-    const existingFilled = countFilledPositions(existingSnapshot.positions);
-    const rebuiltFilled = countFilledPositions(rebuiltPositions);
-    const totalPositions = rebuiltPositions.length;
-
-    if (existingFilled === 0) return false;
-
-    // Never preserve if rebuild is equal or better
-    if (rebuiltFilled >= existingFilled) return false;
-
-    // Never preserve if orbit is fully filled
-    if (rebuiltFilled === totalPositions && totalPositions > 0) return false;
-
-    const rebuiltHasNoSignal =
-      (currentEvents?.length || 0) === 0 &&
-      (currentReceipts?.length || 0) === 0;
-
-    // 🔥 CRITICAL FIX:
-    // If reset happened → DO NOT preserve old cycle data
-    if (lastReset) return false;
-
-    if (rebuiltHasNoSignal) return true;
-
-    if (rebuiltFilled === 0 && existingFilled > 0) return true;
-
+  existingSnapshot,
+  rebuiltPositions,
+  currentEvents,
+  currentReceipts,
+  lastReset,
+  currentCycleNumber,
+}) {
+  if (!existingSnapshot?.positions?.length) {
     return false;
   }
+
+  const existingFilled =
+    countFilledPositions(existingSnapshot.positions);
+
+  const rebuiltFilled =
+    countFilledPositions(rebuiltPositions);
+
+  if (existingFilled === 0) {
+    return false;
+  }
+
+  // Rebuild is equal or better
+  if (rebuiltFilled >= existingFilled) {
+    return false;
+  }
+
+  // Never preserve across resets
+  if (lastReset) {
+    return false;
+  }
+
+  // Never preserve when cycle changed
+  const existingCycle =
+    Number(existingSnapshot?.currentCycleNumber || 0);
+
+  if (
+    currentCycleNumber > 1 &&
+    existingCycle !== currentCycleNumber
+  ) {
+    return false;
+  }
+
+  // Never preserve when chain data exists
+  if (
+    (currentEvents?.length || 0) > 0 ||
+    (currentReceipts?.length || 0) > 0
+  ) {
+    return false;
+  }
+
+  return true;
+}
 
 function preserveExistingSnapshotShape({
   existingSnapshot,
