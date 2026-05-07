@@ -13,6 +13,7 @@ let wsBlockSubscriptionStarted = false;
 const wsBlockListeners = new Set();
 const wsProviderListeners = new Map();
 let fallbackBlockPoller = null;
+let wsProvidersStartPromise = null;
 
 const DEFAULT_HTTP_RETRY_ATTEMPTS = 4;
 const DEFAULT_HTTP_RETRY_BASE_DELAY_MS = 1000;
@@ -482,16 +483,25 @@ function cleanupWsProviderListeners(entry) {
   if (socket) {
     try {
       if (existing.openHandler) {
-        socket.removeEventListener?.('open', existing.openHandler);
-        socket.off?.('open', existing.openHandler);
+        if (typeof socket.removeEventListener === 'function') {
+          socket.removeEventListener('open', existing.openHandler);
+        } else if (typeof socket.off === 'function') {
+          socket.off('open', existing.openHandler);
+        }
       }
       if (existing.closeHandler) {
-        socket.removeEventListener?.('close', existing.closeHandler);
-        socket.off?.('close', existing.closeHandler);
+        if (typeof socket.removeEventListener === 'function') {
+          socket.removeEventListener('close', existing.closeHandler);
+        } else if (typeof socket.off === 'function') {
+          socket.off('close', existing.closeHandler);
+        }
       }
       if (existing.errorHandler) {
-        socket.removeEventListener?.('error', existing.errorHandler);
-        socket.off?.('error', existing.errorHandler);
+        if (typeof socket.removeEventListener === 'function') {
+          socket.removeEventListener('error', existing.errorHandler);
+        } else if (typeof socket.off === 'function') {
+          socket.off('error', existing.errorHandler);
+        }
       }
     } catch {
       // ignore
@@ -691,13 +701,15 @@ async function ensureWsProviderConnected(entry) {
   provider.on('block', blockHandler);
 
   if (socket) {
-    socket.addEventListener?.('open', openHandler);
-    socket.addEventListener?.('close', closeHandler);
-    socket.addEventListener?.('error', errorHandler);
-
-    socket.on?.('open', openHandler);
-    socket.on?.('close', closeHandler);
-    socket.on?.('error', errorHandler);
+    if (typeof socket.addEventListener === 'function') {
+      socket.addEventListener('open', openHandler);
+      socket.addEventListener('close', closeHandler);
+      socket.addEventListener('error', errorHandler);
+    } else if (typeof socket.on === 'function') {
+      socket.on('open', openHandler);
+      socket.on('close', closeHandler);
+      socket.on('error', errorHandler);
+    }
   }
 
   wsProviderListeners.set(entry.id, {
@@ -726,10 +738,15 @@ async function ensureAllWsProvidersStarted() {
     return [];
   }
 
-  const providers = await Promise.all(
-    wsProviderEntries.map((entry) => ensureWsProviderConnected(entry))
-  );
+  if (!wsProvidersStartPromise) {
+    wsProvidersStartPromise = Promise.all(
+      wsProviderEntries.map((entry) => ensureWsProviderConnected(entry))
+    ).finally(() => {
+      wsProvidersStartPromise = null;
+    });
+  }
 
+  const providers = await wsProvidersStartPromise;
   return providers.filter(Boolean);
 }
 
@@ -1061,6 +1078,7 @@ export async function connectBlockchain() {
 
 
 
+
 // import { JsonRpcProvider, WebSocketProvider } from 'ethers';
 // import env from '../config/env.js';
 
@@ -1076,7 +1094,6 @@ export async function connectBlockchain() {
 // const wsBlockListeners = new Set();
 // const wsProviderListeners = new Map();
 // let fallbackBlockPoller = null;
-// let lastBroadcastBlock = 0;
 
 // const DEFAULT_HTTP_RETRY_ATTEMPTS = 4;
 // const DEFAULT_HTTP_RETRY_BASE_DELAY_MS = 1000;
@@ -1115,7 +1132,9 @@ export async function connectBlockchain() {
 //   const now = Date.now();
 //   lastCallTimestamps = lastCallTimestamps.filter(t => now - t < 1000);
 
-//   if (lastCallTimestamps.length > 50) {
+//   const MAX_RPS = Number(env.RPC_MAX_RPS) || 50;
+
+//   if (lastCallTimestamps.length > MAX_RPS) {
 //     await sleep(200);
 //   }
 
@@ -1488,9 +1507,7 @@ export async function connectBlockchain() {
 //   }
 // }
 
-// // function getWsUnderlyingSocket(provider) {
-// //   return provider?._websocket || provider?.websocket || null;
-// // }
+
 
 // function getWsUnderlyingSocket(provider) {
 //   if (!provider) return null;
@@ -1522,40 +1539,6 @@ export async function connectBlockchain() {
 //   }
 // }
 
-// // function cleanupWsProviderListeners(entry) {
-// //   const existing = wsProviderListeners.get(entry.id);
-// //   if (!existing || !entry.provider) return;
-
-// //   try {
-// //     if (existing.blockHandler) {
-// //       entry.provider.off('block', existing.blockHandler);
-// //     }
-// //   } catch {
-// //     // ignore
-// //   }
-
-// //   const socket = getWsUnderlyingSocket(entry.provider);
-// //   if (socket) {
-// //     try {
-// //       if (existing.openHandler) {
-// //         socket.removeEventListener?.('open', existing.openHandler);
-// //         socket.off?.('open', existing.openHandler);
-// //       }
-// //       if (existing.closeHandler) {
-// //         socket.removeEventListener?.('close', existing.closeHandler);
-// //         socket.off?.('close', existing.closeHandler);
-// //       }
-// //       if (existing.errorHandler) {
-// //         socket.removeEventListener?.('error', existing.errorHandler);
-// //         socket.off?.('error', existing.errorHandler);
-// //       }
-// //     } catch {
-// //       // ignore
-// //     }
-// //   }
-
-// //   wsProviderListeners.delete(entry.id);
-// // }
 
 
 // function cleanupWsProviderListeners(entry) {
@@ -1599,33 +1582,6 @@ export async function connectBlockchain() {
 //   wsProviderListeners.delete(entry.id);
 // }
 
-// // async function destroyWsProvider(entry) {
-// //   clearWsReconnectTimer(entry);
-// //   cleanupWsProviderListeners(entry);
-
-// //   if (!entry.provider) {
-// //     entry.connected = false;
-// //     return;
-// //   }
-
-// //   const provider = entry.provider;
-// //   entry.provider = null;
-// //   entry.connected = false;
-
-// //   try {
-// //     await provider.destroy?.();
-// //   } catch {
-// //     // ignore
-// //   }
-
-// //   const socket = getWsUnderlyingSocket(provider);
-// //   try {
-// //     socket?.close?.();
-// //   } catch {
-// //     // ignore
-// //   }
-// // }
-
 // async function destroyWsProvider(entry) {
 //   clearWsReconnectTimer(entry);
 
@@ -1645,18 +1601,45 @@ export async function connectBlockchain() {
 //     // ignore
 //   }
 
-//   try {
-//     await provider.destroy?.();
-//   } catch {
-//     // ignore
-//   }
+//   // try {
+//   //   await provider.destroy?.();
+//   // } catch {
+//   //   // ignore
+//   // }
+
 
 //   try {
 //     const socket = getWsUnderlyingSocket(provider);
-//     socket?.close?.();
-//   } catch {
-//     // ignore
+
+//     if (socket) {
+//       // prevent unhandled error crash
+//       socket.onerror = () => {};
+//       socket.onclose = () => {};
+//       socket.addEventListener?.('error', () => {});
+//     }
+
+//     await provider.destroy?.();
+//   } catch (error) {
+//     logDebug('[WS_PROVIDER_DESTROY_IGNORED]', buildErrorMessage(error));
 //   }
+
+// //   try {
+// //     const socket = getWsUnderlyingSocket(provider);
+// //     socket?.close?.();
+// //   } catch {
+// //   // ignore
+// // }
+
+//     try {
+//       const socket = getWsUnderlyingSocket(provider);
+
+//       if (socket && socket.readyState === 1) {
+//         // only close if OPEN
+//         socket.close();
+//       }
+//     } catch (error) {
+//       logDebug('[WS_SOCKET_CLOSE_IGNORED]', buildErrorMessage(error));
+//     }
 // }
 
 // function scheduleWsReconnect(entry, reason = null) {
@@ -1693,22 +1676,6 @@ export async function connectBlockchain() {
 //   });
 // }
 
-// // function broadcastNewBlock(blockNumber) {
-// //   const numericBlock = Number(blockNumber || 0);
-// //   if (!Number.isFinite(numericBlock) || numericBlock <= 0) return;
-
-// //   if (numericBlock <= lastBroadcastBlock) return;
-// //   lastBroadcastBlock = numericBlock;
-
-// //   for (const listener of wsBlockListeners) {
-// //     Promise.resolve()
-// //       .then(() => listener(numericBlock))
-// //       .catch((error) => {
-// //         console.error('[WS_BLOCK_LISTENER_ERROR]', error);
-// //       });
-// //   }
-// // }
-
 
 // let lastEmittedBlock = 0;
 // let blockEmitTimer = null;
@@ -1724,6 +1691,9 @@ export async function connectBlockchain() {
 //   // 🔥 THROTTLE EVENTS
 //   if (blockEmitTimer) return;
 
+//   const BLOCK_EMIT_THROTTLE_MS =
+//     Number(env.WS_BLOCK_THROTTLE_MS) || 300;
+
 //   blockEmitTimer = setTimeout(() => {
 //     for (const listener of wsBlockListeners) {
 //       Promise.resolve()
@@ -1733,7 +1703,7 @@ export async function connectBlockchain() {
 //         });
 //     }
 //     blockEmitTimer = null;
-//   }, 300);
+//   }, BLOCK_EMIT_THROTTLE_MS);
 // }
 
 // async function ensureWsProviderConnected(entry) {
@@ -1943,6 +1913,9 @@ export async function connectBlockchain() {
 //   };
 // }
 
+// // ===========================
+// // first working version
+// // =================================
 // // export async function safeRpcCall(
 // //   fn,
 // //   retries = getHttpRetryAttempts(),
@@ -1952,6 +1925,7 @@ export async function connectBlockchain() {
 // //   let lastError = null;
 
 // //   while (attempt <= retries) {
+// //     await enforceRateLimit();
 // //     await acquireRpcSlot();
 
 // //     const entry = pickNextHttpProviderEntry();
@@ -2003,6 +1977,70 @@ export async function connectBlockchain() {
 // //   throw lastError || new Error('All RPC providers failed');
 // // }
 
+// // =================================
+// // Second not tested version - i wanted to use this before i switched to the vurrent verion
+// // export async function safeRpcCall(
+// //   fn,
+// //   retries = getHttpRetryAttempts(),
+// //   baseDelayMs = getHttpRetryBaseDelayMs()
+// // ) {
+// //   let attempt = 0;
+// //   let lastError = null;
+
+// //   while (attempt <= retries) {
+// //     await enforceRateLimit();
+// //     await acquireRpcSlot();
+
+// //     const entry = pickNextHttpProviderEntry();
+
+// //     try {
+// //       const result = await fn(entry.provider, entry);
+// //       markHttpProviderSuccess(entry);
+// //       return result;
+// //     } catch (error) {
+// //       lastError = error;
+
+// //       if (!isTransientRpcError(error)) {
+// //         throw error;
+// //       }
+
+// //       markHttpProviderFailure(entry, error);
+
+// //       if (isDebugLoggingEnabled()) {
+// //         console.warn(
+// //           `[RPC] ${entry.id} failed attempt ${attempt + 1}/${retries + 1}`,
+// //           buildErrorMessage(error)
+// //         );
+// //       }
+
+// //       attempt += 1;
+
+// //       // IMPORTANT:
+// //       // Out-of-credit RPCs are already placed in cooldown.
+// //       // Do NOT sleep for 120s here. Immediately try another provider.
+// //       if (isOutOfCreditsError(error)) {
+// //         continue;
+// //       }
+
+// //       if (attempt > retries) {
+// //         break;
+// //       }
+
+// //       const waitMs = isRateLimitError(error)
+// //         ? Math.min(baseDelayMs * Math.pow(2, attempt - 1), 3000)
+// //         : Math.min(baseDelayMs * Math.pow(2, attempt - 1), 1500);
+
+// //       releaseRpcSlot();
+// //       await sleep(waitMs);
+// //       continue;
+// //     } finally {
+// //       releaseRpcSlot();
+// //     }
+// //   }
+
+// //   throw lastError || new Error('All RPC providers failed');
+// // }
+
 // export async function safeRpcCall(
 //   fn,
 //   retries = getHttpRetryAttempts(),
@@ -2012,10 +2050,8 @@ export async function connectBlockchain() {
 //   let lastError = null;
 
 //   while (attempt <= retries) {
-//     await acquireRpcSlot();
-
-//     // 🔥 NEW: PREVENT SPIKES
 //     await enforceRateLimit();
+//     await acquireRpcSlot();
 
 //     const entry = pickNextHttpProviderEntry();
 //     let releasedEarly = false;
@@ -2033,31 +2069,40 @@ export async function connectBlockchain() {
 
 //       markHttpProviderFailure(entry, error);
 
-//       if (attempt >= retries) {
-//         break;
-//       }
-
-//       const waitMs = isOutOfCreditsError(error)
-//         ? getOutOfCreditsCooldownMs()
-//         : isRateLimitError(error)
-//           ? Math.min(baseDelayMs * Math.pow(2, attempt), getRateLimitCooldownMs(entry.failures))
-//           : Math.min(baseDelayMs * Math.pow(2, attempt), getTransientCooldownMs(entry.failures));
-
 //       if (isDebugLoggingEnabled()) {
 //         console.warn(
-//           `[RPC] ${entry.id} retry ${attempt + 1}/${retries} after ${waitMs}ms`,
+//           `[RPC] ${entry.id} failed attempt ${attempt + 1}/${retries + 1}`,
 //           buildErrorMessage(error)
 //         );
 //       }
+
+//       attempt += 1;
+
+//       // if (isOutOfCreditsError(error)) {
+//       //   continue;
+//       // }
+
+//       if (isOutOfCreditsError(error)) {
+//         releaseRpcSlot();
+//         releasedEarly = true;
+//         continue;
+//       }
+
+//       if (attempt > retries) {
+//         break;
+//       }
+
+//       const waitMs = isRateLimitError(error)
+//         ? Math.min(baseDelayMs * Math.pow(2, attempt - 1), 3000)
+//         : Math.min(baseDelayMs * Math.pow(2, attempt - 1), 1500);
 
 //       releaseRpcSlot();
 //       releasedEarly = true;
 
 //       await sleep(waitMs);
-//       attempt += 1;
 //       continue;
 //     } finally {
-//       if (!releasedEarly && activeRpcCalls > 0) {
+//       if (!releasedEarly) {
 //         releaseRpcSlot();
 //       }
 //     }
@@ -2066,6 +2111,11 @@ export async function connectBlockchain() {
 //   throw lastError || new Error('All RPC providers failed');
 // }
 
+
+
+// export async function safeSharedRpcCall(key, fn) {
+//   return dedupedRpcCall(key, fn, 300);
+// }
 
 // export async function connectBlockchain() {
 //   initProviders();
@@ -2074,742 +2124,6 @@ export async function connectBlockchain() {
 //   const blockNumber = await safeRpcCall((provider) => provider.getBlockNumber());
 
 //   ensureWsBlockSubscriptionStarted();
-
-//   return {
-//     chainId: Number(network.chainId),
-//     name: network.name,
-//     blockNumber,
-//     providers: getProviderHealthSnapshot(),
-//   };
-// }
-
-
-
-
-
-//==============
-// THIRD VERSION
-//=====================
-// import { JsonRpcProvider } from 'ethers';
-// import env from '../config/env.js';
-
-// let providerEntries = [];
-// let providerPointer = 0;
-
-// let activeRpcCalls = 0;
-// const waitQueue = [];
-
-// function sleep(ms) {
-//   return new Promise((resolve) => setTimeout(resolve, ms));
-// }
-
-// function buildErrorMessage(error) {
-//   return (
-//     String(error?.message || '') +
-//     ' ' +
-//     String(error?.shortMessage || '') +
-//     ' ' +
-//     String(error?.info?.responseStatus || '') +
-//     ' ' +
-//     String(error?.info?.responseBody || '')
-//   ).trim();
-// }
-
-// function isRateLimitError(error) {
-//   const lower = buildErrorMessage(error).toLowerCase();
-
-//   return (
-//     lower.includes('429') ||
-//     lower.includes('1015') ||
-//     lower.includes('rate limit') ||
-//     lower.includes('too many requests') ||
-//     lower.includes('throughput') ||
-//     lower.includes('compute units per second') ||
-//     lower.includes('exceeded maximum retry limit')
-//   );
-// }
-
-// function isOutOfCreditsError(error) {
-//   const lower = buildErrorMessage(error).toLowerCase();
-
-//   return (
-//     lower.includes('402') ||
-//     lower.includes('payment required') ||
-//     lower.includes('out of cu') ||
-//     lower.includes('out of credits') ||
-//     lower.includes('billing') ||
-//     lower.includes('quota exceeded')
-//   );
-// }
-
-// function isTransientRpcError(error) {
-//   const lower = buildErrorMessage(error).toLowerCase();
-
-//   return (
-//     isRateLimitError(error) ||
-//     isOutOfCreditsError(error) ||
-//     lower.includes('timeout') ||
-//     lower.includes('socket hang up') ||
-//     lower.includes('network error') ||
-//     lower.includes('failed to detect network') ||
-//     lower.includes('missing response') ||
-//     lower.includes('bad gateway') ||
-//     lower.includes('gateway timeout') ||
-//     lower.includes('server error')
-//   );
-// }
-
-// function initProviders() {
-//   if (providerEntries.length > 0) return providerEntries;
-
-//   providerEntries = env.RPC_URLS.map((url, index) => ({
-//     id: `rpc-${index + 1}`,
-//     url,
-//     provider: new JsonRpcProvider(
-//       url,
-//       {
-//         chainId: env.CHAIN_ID,
-//         name: `chain-${env.CHAIN_ID}`,
-//       },
-//       {
-//         staticNetwork: true,
-//       }
-//     ),
-//     failures: 0,
-//     cooldownUntil: 0,
-//     lastError: '',
-//     successCount: 0,
-//   }));
-
-//   return providerEntries;
-// }
-
-// function getHealthyProviderEntries() {
-//   initProviders();
-//   const now = Date.now();
-
-//   const healthy = providerEntries.filter(
-//     (entry) => entry.cooldownUntil <= now
-//   );
-
-//   return healthy.length > 0 ? healthy : providerEntries;
-// }
-
-// function pickNextProviderEntry() {
-//   const healthy = getHealthyProviderEntries();
-
-//   // round robin but prefer less failed providers
-//   healthy.sort((a, b) => a.failures - b.failures);
-
-//   const entry = healthy[providerPointer % healthy.length];
-//   providerPointer = (providerPointer + 1) % Number.MAX_SAFE_INTEGER;
-
-//   return entry;
-// }
-
-// function markProviderSuccess(entry) {
-//   entry.failures = 0;
-//   entry.cooldownUntil = 0;
-//   entry.lastError = '';
-//   entry.successCount += 1;
-// }
-
-// function markProviderFailure(entry, error) {
-//   entry.failures += 1;
-//   entry.lastError =
-//     error?.shortMessage ||
-//     error?.message ||
-//     error?.info?.responseStatus ||
-//     'Unknown RPC error';
-
-//   if (isOutOfCreditsError(error)) {
-//     entry.cooldownUntil = Date.now() + env.RPC_OUT_OF_CREDITS_COOLDOWN_MS;
-//     return;
-//   }
-
-//   const cooldownMs = Math.min(2000 * entry.failures, 15000);
-//   entry.cooldownUntil = Date.now() + cooldownMs;
-// }
-
-// async function acquireRpcSlot() {
-//   if (activeRpcCalls < env.RPC_MAX_CONCURRENCY) {
-//     activeRpcCalls += 1;
-//     return;
-//   }
-
-//   await new Promise((resolve) => {
-//     waitQueue.push(resolve);
-//   });
-
-//   activeRpcCalls += 1;
-// }
-
-// function releaseRpcSlot() {
-//   activeRpcCalls = Math.max(0, activeRpcCalls - 1);
-//   const next = waitQueue.shift();
-//   if (next) next();
-// }
-
-// export function getProvider() {
-//   return pickNextProviderEntry().provider;
-// }
-
-// export function getProviderHealthSnapshot() {
-//   initProviders();
-
-//   return providerEntries.map((entry) => ({
-//     id: entry.id,
-//     url: entry.url,
-//     failures: entry.failures,
-//     successCount: entry.successCount,
-//     cooldownUntil: entry.cooldownUntil,
-//     coolingDown: entry.cooldownUntil > Date.now(),
-//     lastError: entry.lastError,
-//   }));
-// }
-
-// export async function safeRpcCall(
-//   fn,
-//   retries = env.RPC_RETRY_ATTEMPTS,
-//   baseDelayMs = env.RPC_RETRY_BASE_DELAY_MS
-// ) {
-//   let attempt = 0;
-//   let lastError = null;
-
-//   while (attempt <= retries) {
-//     await acquireRpcSlot();
-
-//     const entry = pickNextProviderEntry();
-//     let releasedEarly = false;
-
-//     try {
-//       const result = await fn(entry.provider, entry);
-//       markProviderSuccess(entry);
-//       return result;
-//     } catch (err) {
-//       lastError = err;
-
-//       if (!isTransientRpcError(err)) {
-//         throw err;
-//       }
-
-//       markProviderFailure(entry, err);
-
-//       if (attempt >= retries) {
-//         break;
-//       }
-
-//       const waitMs = isOutOfCreditsError(err)
-//         ? env.RPC_OUT_OF_CREDITS_COOLDOWN_MS
-//         : Math.min(baseDelayMs * Math.pow(2, attempt), 10000);
-
-//       if (env.LOG_LEVEL === 'debug') {
-//         console.warn(
-//           `[RPC] ${entry.id} retry ${attempt + 1}/${retries} after ${waitMs}ms`,
-//           buildErrorMessage(err)
-//         );
-//       }
-
-//       releaseRpcSlot();
-//       releasedEarly = true;
-
-//       await sleep(waitMs);
-//       attempt += 1;
-//       continue;
-//     } finally {
-//       if (!releasedEarly && activeRpcCalls > 0) {
-//         releaseRpcSlot();
-//       }
-//     }
-//   }
-
-//   throw lastError || new Error('All RPC providers failed');
-// }
-
-// export async function connectBlockchain() {
-//   const network = await safeRpcCall((provider) => provider.getNetwork());
-//   const blockNumber = await safeRpcCall((provider) =>
-//     provider.getBlockNumber()
-//   );
-
-//   return {
-//     chainId: Number(network.chainId),
-//     name: network.name,
-//     blockNumber,
-//     providers: getProviderHealthSnapshot(),
-//   };
-// }
-
-
-
-
-
-
-
-
-
-
-
-
-//======================
-//  SECOND VERSION
-//=====================
-// import { JsonRpcProvider } from 'ethers';
-// import env from '../config/env.js';
-
-// let providerEntries = [];
-// let providerPointer = 0;
-
-// let activeRpcCalls = 0;
-// const waitQueue = [];
-
-// function sleep(ms) {
-//   return new Promise((resolve) => setTimeout(resolve, ms));
-// }
-
-// function buildErrorMessage(error) {
-//   return (
-//     String(error?.message || '') +
-//     ' ' +
-//     String(error?.shortMessage || '') +
-//     ' ' +
-//     String(error?.info?.responseStatus || '') +
-//     ' ' +
-//     String(error?.info?.responseBody || '')
-//   ).trim();
-// }
-
-// function isRateLimitError(error) {
-//   const lower = buildErrorMessage(error).toLowerCase();
-
-//   return (
-//     lower.includes('429') ||
-//     lower.includes('1015') ||
-//     lower.includes('rate limit') ||
-//     lower.includes('too many requests') ||
-//     lower.includes('throughput') ||
-//     lower.includes('compute units per second') ||
-//     lower.includes('exceeded maximum retry limit')
-//   );
-// }
-
-// function isOutOfCreditsError(error) {
-//   const lower = buildErrorMessage(error).toLowerCase();
-
-//   return (
-//     lower.includes('402') ||
-//     lower.includes('payment required') ||
-//     lower.includes('out of cu') ||
-//     lower.includes('out of credits') ||
-//     lower.includes('billing') ||
-//     lower.includes('quota exceeded')
-//   );
-// }
-
-// function isTransientRpcError(error) {
-//   const lower = buildErrorMessage(error).toLowerCase();
-
-//   return (
-//     isRateLimitError(error) ||
-//     isOutOfCreditsError(error) ||
-//     lower.includes('timeout') ||
-//     lower.includes('socket hang up') ||
-//     lower.includes('network error') ||
-//     lower.includes('failed to detect network') ||
-//     lower.includes('missing response') ||
-//     lower.includes('bad gateway') ||
-//     lower.includes('gateway timeout') ||
-//     lower.includes('server error')
-//   );
-// }
-
-// function initProviders() {
-//   if (providerEntries.length > 0) return providerEntries;
-
-//   providerEntries = env.RPC_URLS.map((url, index) => ({
-//     id: `rpc-${index + 1}`,
-//     url,
-//     provider: new JsonRpcProvider(
-//       url,
-//       {
-//         chainId: env.CHAIN_ID,
-//         name: `chain-${env.CHAIN_ID}`,
-//       },
-//       {
-//         staticNetwork: true,
-//       }
-//     ),
-//     failures: 0,
-//     cooldownUntil: 0,
-//     lastError: '',
-//   }));
-
-//   return providerEntries;
-// }
-
-// function getHealthyProviderEntries() {
-//   initProviders();
-//   const now = Date.now();
-//   const healthy = providerEntries.filter((entry) => entry.cooldownUntil <= now);
-//   return healthy.length > 0 ? healthy : providerEntries;
-// }
-
-// function pickNextProviderEntry() {
-//   const healthy = getHealthyProviderEntries();
-//   const entry = healthy[providerPointer % healthy.length];
-//   providerPointer = (providerPointer + 1) % Number.MAX_SAFE_INTEGER;
-//   return entry;
-// }
-
-// function markProviderSuccess(entry) {
-//   entry.failures = 0;
-//   entry.cooldownUntil = 0;
-//   entry.lastError = '';
-// }
-
-// function markProviderFailure(entry, error) {
-//   entry.failures += 1;
-//   entry.lastError =
-//     error?.shortMessage ||
-//     error?.message ||
-//     error?.info?.responseStatus ||
-//     'Unknown RPC error';
-
-//   if (isOutOfCreditsError(error)) {
-//     entry.cooldownUntil = Date.now() + env.RPC_OUT_OF_CREDITS_COOLDOWN_MS;
-//     return;
-//   }
-
-//   const cooldownMs = Math.min(2000 * entry.failures, 15000);
-//   entry.cooldownUntil = Date.now() + cooldownMs;
-// }
-
-// async function acquireRpcSlot() {
-//   if (activeRpcCalls < env.RPC_MAX_CONCURRENCY) {
-//     activeRpcCalls += 1;
-//     return;
-//   }
-
-//   await new Promise((resolve) => {
-//     waitQueue.push(resolve);
-//   });
-
-//   activeRpcCalls += 1;
-// }
-
-// function releaseRpcSlot() {
-//   activeRpcCalls = Math.max(0, activeRpcCalls - 1);
-//   const next = waitQueue.shift();
-//   if (next) next();
-// }
-
-// export function getProvider() {
-//   return pickNextProviderEntry().provider;
-// }
-
-// export function getProviderHealthSnapshot() {
-//   initProviders();
-
-//   return providerEntries.map((entry) => ({
-//     id: entry.id,
-//     url: entry.url,
-//     failures: entry.failures,
-//     cooldownUntil: entry.cooldownUntil,
-//     coolingDown: entry.cooldownUntil > Date.now(),
-//     lastError: entry.lastError,
-//   }));
-// }
-
-// export async function safeRpcCall(
-//   fn,
-//   retries = env.RPC_RETRY_ATTEMPTS,
-//   baseDelayMs = env.RPC_RETRY_BASE_DELAY_MS
-// ) {
-//   let attempt = 0;
-//   let lastError = null;
-
-//   while (attempt <= retries) {
-//     await acquireRpcSlot();
-
-//     const entry = pickNextProviderEntry();
-//     let releasedEarly = false;
-
-//     try {
-//       const result = await fn(entry.provider, entry);
-//       markProviderSuccess(entry);
-//       return result;
-//     } catch (err) {
-//       lastError = err;
-
-//       if (!isTransientRpcError(err)) {
-//         throw err;
-//       }
-
-//       markProviderFailure(entry, err);
-
-//       if (attempt >= retries) {
-//         break;
-//       }
-
-//       const waitMs = isOutOfCreditsError(err)
-//         ? env.RPC_OUT_OF_CREDITS_COOLDOWN_MS
-//         : Math.min(baseDelayMs * Math.pow(2, attempt), 10000);
-
-//       if (isOutOfCreditsError(err)) {
-//         console.warn(
-//           `[RPC] ${entry.id} exhausted or out of credits; cooling down for ${waitMs}ms`
-//         );
-//       } else {
-//         console.warn(
-//           `[RPC] ${entry.id} transient failure detected; retrying in ${waitMs}ms`
-//         );
-//       }
-
-//       releaseRpcSlot();
-//       releasedEarly = true;
-
-//       await sleep(waitMs);
-//       attempt += 1;
-//       continue;
-//     } finally {
-//       if (!releasedEarly && activeRpcCalls > 0) {
-//         releaseRpcSlot();
-//       }
-//     }
-//   }
-
-//   throw lastError || new Error('All RPC providers failed');
-// }
-
-// export async function connectBlockchain() {
-//   const network = await safeRpcCall((provider) => provider.getNetwork());
-//   const blockNumber = await safeRpcCall((provider) => provider.getBlockNumber());
-
-//   return {
-//     chainId: Number(network.chainId),
-//     name: network.name,
-//     blockNumber,
-//     providers: getProviderHealthSnapshot(),
-//   };
-// }
-
-
-
-
-
-
-
-
-
-
-//========================================
-// FIRST VERSION
-//========================================
-// import { JsonRpcProvider } from 'ethers';
-// import env from '../config/env.js';
-
-// let providerEntries = [];
-// let providerPointer = 0;
-
-// let activeRpcCalls = 0;
-// const waitQueue = [];
-
-// function sleep(ms) {
-//   return new Promise((resolve) => setTimeout(resolve, ms));
-// }
-
-// function isRateLimitError(error) {
-//   const msg =
-//     String(error?.message || '') +
-//     ' ' +
-//     String(error?.shortMessage || '') +
-//     ' ' +
-//     String(error?.info?.responseStatus || '') +
-//     ' ' +
-//     String(error?.info?.responseBody || '');
-
-//   const lower = msg.toLowerCase();
-
-//   return (
-//     lower.includes('429') ||
-//     lower.includes('1015') ||
-//     lower.includes('rate limit') ||
-//     lower.includes('too many requests') ||
-//     lower.includes('throughput') ||
-//     lower.includes('compute units per second') ||
-//     lower.includes('exceeded maximum retry limit')
-//   );
-// }
-
-// function isTransientRpcError(error) {
-//   const msg =
-//     String(error?.message || '') +
-//     ' ' +
-//     String(error?.shortMessage || '') +
-//     ' ' +
-//     String(error?.info?.responseStatus || '') +
-//     ' ' +
-//     String(error?.info?.responseBody || '');
-
-//   const lower = msg.toLowerCase();
-
-//   return (
-//     isRateLimitError(error) ||
-//     lower.includes('timeout') ||
-//     lower.includes('socket hang up') ||
-//     lower.includes('network error') ||
-//     lower.includes('failed to detect network') ||
-//     lower.includes('missing response') ||
-//     lower.includes('bad gateway') ||
-//     lower.includes('gateway timeout') ||
-//     lower.includes('server error')
-//   );
-// }
-
-// function initProviders() {
-//   if (providerEntries.length > 0) return providerEntries;
-
-//   providerEntries = env.RPC_URLS.map((url, index) => ({
-//     id: `rpc-${index + 1}`,
-//     url,
-//     provider: new JsonRpcProvider(
-//       url,
-//       {
-//         chainId: env.CHAIN_ID,
-//         name: `chain-${env.CHAIN_ID}`,
-//       },
-//       {
-//         staticNetwork: true,
-//       }
-//     ),
-//     failures: 0,
-//     cooldownUntil: 0,
-//     lastError: '',
-//   }));
-
-//   return providerEntries;
-// }
-
-// function getHealthyProviderEntries() {
-//   initProviders();
-//   const now = Date.now();
-//   const healthy = providerEntries.filter((entry) => entry.cooldownUntil <= now);
-//   return healthy.length > 0 ? healthy : providerEntries;
-// }
-
-// function pickNextProviderEntry() {
-//   const healthy = getHealthyProviderEntries();
-//   const entry = healthy[providerPointer % healthy.length];
-//   providerPointer = (providerPointer + 1) % Number.MAX_SAFE_INTEGER;
-//   return entry;
-// }
-
-// function markProviderSuccess(entry) {
-//   entry.failures = 0;
-//   entry.cooldownUntil = 0;
-//   entry.lastError = '';
-// }
-
-// function markProviderFailure(entry, error) {
-//   entry.failures += 1;
-//   entry.lastError =
-//     error?.shortMessage ||
-//     error?.message ||
-//     error?.info?.responseStatus ||
-//     'Unknown RPC error';
-
-//   const cooldownMs = Math.min(2000 * entry.failures, 15000);
-//   entry.cooldownUntil = Date.now() + cooldownMs;
-// }
-
-// async function acquireRpcSlot() {
-//   if (activeRpcCalls < env.RPC_MAX_CONCURRENCY) {
-//     activeRpcCalls += 1;
-//     return;
-//   }
-
-//   await new Promise((resolve) => {
-//     waitQueue.push(resolve);
-//   });
-
-//   activeRpcCalls += 1;
-// }
-
-// function releaseRpcSlot() {
-//   activeRpcCalls = Math.max(0, activeRpcCalls - 1);
-//   const next = waitQueue.shift();
-//   if (next) next();
-// }
-
-// export function getProvider() {
-//   return pickNextProviderEntry().provider;
-// }
-
-// export function getProviderHealthSnapshot() {
-//   initProviders();
-
-//   return providerEntries.map((entry) => ({
-//     id: entry.id,
-//     url: entry.url,
-//     failures: entry.failures,
-//     cooldownUntil: entry.cooldownUntil,
-//     coolingDown: entry.cooldownUntil > Date.now(),
-//     lastError: entry.lastError,
-//   }));
-// }
-
-// export async function safeRpcCall(
-//   fn,
-//   retries = env.RPC_RETRY_ATTEMPTS,
-//   baseDelayMs = env.RPC_RETRY_BASE_DELAY_MS
-// ) {
-//   let attempt = 0;
-//   let lastError = null;
-
-//   while (attempt <= retries) {
-//     await acquireRpcSlot();
-
-//     const entry = pickNextProviderEntry();
-
-//     try {
-//       const result = await fn(entry.provider, entry);
-//       markProviderSuccess(entry);
-//       return result;
-//     } catch (err) {
-//       lastError = err;
-
-//       if (!isTransientRpcError(err)) {
-//         throw err;
-//       }
-
-//       markProviderFailure(entry, err);
-
-//       if (attempt >= retries) {
-//         break;
-//       }
-
-//       const waitMs = Math.min(baseDelayMs * Math.pow(2, attempt), 10000);
-//       console.warn(
-//         `[RPC] ${entry.id} transient failure detected; retrying in ${waitMs}ms`
-//       );
-
-//       releaseRpcSlot();
-//       await sleep(waitMs);
-//       attempt += 1;
-//       continue;
-//     } finally {
-//       if (activeRpcCalls > 0) {
-//         releaseRpcSlot();
-//       }
-//     }
-//   }
-
-//   throw lastError || new Error('All RPC providers failed');
-// }
-
-// export async function connectBlockchain() {
-//   const network = await safeRpcCall((provider) => provider.getNetwork());
-//   const blockNumber = await safeRpcCall((provider) => provider.getBlockNumber());
 
 //   return {
 //     chainId: Number(network.chainId),
