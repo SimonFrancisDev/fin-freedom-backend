@@ -407,11 +407,35 @@ function getResetEvents(events) {
   );
 }
 
+// function getCycleBoundary(events, cycleNumber) {
+//   const resetEvents = getResetEvents(events);
+
+//   const previousReset = cycleNumber > 1 ? resetEvents[cycleNumber - 2] || null : null;
+//   const currentReset = resetEvents[cycleNumber - 1] || null;
+
+//   if (!currentReset) return null;
+
+//   return {
+//     previousReset,
+//     currentReset,
+//   };
+// }
+
+
 function getCycleBoundary(events, cycleNumber) {
   const resetEvents = getResetEvents(events);
 
-  const previousReset = cycleNumber > 1 ? resetEvents[cycleNumber - 2] || null : null;
-  const currentReset = resetEvents[cycleNumber - 1] || null;
+  const previousReset =
+    cycleNumber > 1
+      ? resetEvents.find(
+          (event) => Number(event.cycleNumber || 0) === cycleNumber - 1
+        ) || null
+      : null;
+
+  const currentReset =
+    resetEvents.find(
+      (event) => Number(event.cycleNumber || 0) === cycleNumber
+    ) || null;
 
   if (!currentReset) return null;
 
@@ -637,16 +661,27 @@ export async function buildOrbitCycleSnapshot(address, level, cycleNumber, optio
 
   const boundary = getCycleBoundary(allIndexedEvents, cycleNumber);
 
-  let cycleReceipts;
-  if (boundary) {
-    cycleReceipts = allIndexedReceipts.filter((receipt) =>
-      isWithinCycleBoundary(receipt, boundary)
-    );
-  } else {
-    cycleReceipts = allIndexedReceipts.filter(
-      (receipt) => Number(receipt.sourceCycle || 0) === cycleNumber
-    );
-  }
+  // let cycleReceipts;
+  // if (boundary) {
+  //   cycleReceipts = allIndexedReceipts.filter((receipt) =>
+  //     isWithinCycleBoundary(receipt, boundary)
+  //   );
+  // } else {
+  //   cycleReceipts = allIndexedReceipts.filter(
+  //     (receipt) => Number(receipt.sourceCycle || 0) === cycleNumber
+  //   );
+  // }
+
+  let cycleReceipts = allIndexedReceipts.filter(
+        (receipt) => Number(receipt.sourceCycle || 0) === cycleNumber
+      );
+
+      if (cycleReceipts.length === 0 && boundary) {
+        cycleReceipts = allIndexedReceipts.filter((receipt) =>
+          isWithinCycleBoundary(receipt, boundary)
+        );
+      }
+
 
   // let cycleEvents;
   // let fallbackMode = false;
@@ -667,40 +702,27 @@ export async function buildOrbitCycleSnapshot(address, level, cycleNumber, optio
   // }
 
 
-  let cycleEvents;
-  let fallbackMode = false;
+    let cycleEvents;
+    let fallbackMode = false;
 
-  if (boundary) {
-    cycleEvents = allIndexedEvents.filter(
-      (event) =>
-        event.eventName !== 'OrbitReset' &&
-        isWithinCycleBoundary(event, boundary)
-    );
-  } else {
     cycleEvents = allIndexedEvents.filter(
       (event) =>
         event.eventName !== 'OrbitReset' &&
         Number(event.cycleNumber || 0) === cycleNumber
     );
-    fallbackMode = true;
-  }
 
-  // if (cycleEvents.length === 0 && cycleReceipts.length === 0) {
-  //   if (existingSnapshot?.positions?.length) {
-  //     logDebug('[ORBIT_CYCLE_SNAPSHOT_REUSED_EXISTING_ON_EMPTY_REBUILD]', {
-  //       address: normalizedAddress,
-  //       level,
-  //       cycleNumber,
-  //       orbitType,
-  //     });
+    if (cycleEvents.length === 0 && boundary) {
+      cycleEvents = allIndexedEvents.filter(
+        (event) =>
+          event.eventName !== 'OrbitReset' &&
+          isWithinCycleBoundary(event, boundary)
+      );
+      fallbackMode = true;
+    } else if (cycleEvents.length === 0) {
+      fallbackMode = true;
+    }
 
-  //     return existingSnapshot;
-  //   }
 
-  //   const error = new Error(`Cycle ${cycleNumber} is not available yet`);
-  //   error.status = 404;
-  //   throw error;
-  // }
     if (cycleEvents.length === 0 && cycleReceipts.length === 0) {
     const error = new Error(`Cycle ${cycleNumber} is not available yet`);
     error.status = 404;

@@ -587,12 +587,36 @@ export async function buildOrbitPositionSnapshot(address, level, position, optio
   const lastReset = getLastResetEvent(allEvents);
   const currentCycleNumber = getCompletedCycleCount(allEvents) + 1;
 
-  const filteredEvents = allEvents.filter((event) =>
-    isAfterReset(event, lastReset)
+  // const filteredEvents = allEvents.filter((event) =>
+  //   isAfterReset(event, lastReset)
+  // );
+
+    let filteredEvents = allEvents.filter(
+      (event) =>
+        event.eventName !== 'OrbitReset' &&
+        Number(event.cycleNumber || 0) === currentCycleNumber
+    );
+
+    if (filteredEvents.length === 0) {
+      filteredEvents = allEvents.filter((event) =>
+        isAfterReset(event, lastReset)
+      );
+    }
+
+  // const filteredReceipts = allReceipts.filter((receipt) =>
+  //   isAfterReset(receipt, lastReset)
+  // );
+
+
+  let filteredReceipts = allReceipts.filter(
+  (receipt) => Number(receipt.sourceCycle || 0) === currentCycleNumber
   );
-  const filteredReceipts = allReceipts.filter((receipt) =>
-    isAfterReset(receipt, lastReset)
-  );
+
+  if (filteredReceipts.length === 0) {
+    filteredReceipts = allReceipts.filter((receipt) =>
+      isAfterReset(receipt, lastReset)
+    );
+  }
 
   const eventsForPosition = sortByChainPoint(
     filteredEvents.filter((event) => Number(event.position || 0) === position)
@@ -642,13 +666,14 @@ export async function buildOrbitPositionSnapshot(address, level, position, optio
     //   eventsForPosition,
     //   receiptsForPosition,
     // })
-    shouldPreserveExistingPositionSnapshot({
-      existingSnapshot,
-      rebuiltSnapshot,
-      eventsForPosition,
-      receiptsForPosition,
-      lastReset,
-    })
+        shouldPreserveExistingPositionSnapshot({
+        existingSnapshot,
+        rebuiltSnapshot,
+        eventsForPosition,
+        receiptsForPosition,
+        lastReset,
+        currentCycleNumber,
+      })
   ) {
     rebuiltSnapshot = preserveExistingPositionSnapshot(
       existingSnapshot,

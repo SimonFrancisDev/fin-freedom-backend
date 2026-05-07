@@ -407,6 +407,45 @@ function isAfterResetBoundary(item, resetEvent) {
   );
 }
 
+// function getCurrentCycleEvents(allEvents, totalCycles) {
+//   const sorted = sortByChainPoint(allEvents);
+//   const resetEvents = getResetEvents(sorted);
+//   const lastReset = resetEvents.length ? resetEvents[resetEvents.length - 1] : null;
+
+//   const currentCycleNumber = Number(totalCycles || 0) + 1;
+
+//   const eventsAfterReset = sorted.filter(
+//     (event) =>
+//       event.eventName !== 'OrbitReset' &&
+//       isAfterResetBoundary(event, lastReset)
+//   );
+
+//   if (eventsAfterReset.length > 0) {
+//     return {
+//       currentEvents: eventsAfterReset,
+//       lastReset,
+//       resetEvents,
+//       currentCycleNumber,
+//       source: 'reset-boundary',
+//     };
+//   }
+
+//   const cycleTaggedEvents = sorted.filter(
+//     (event) =>
+//       event.eventName !== 'OrbitReset' &&
+//       Number(event.cycleNumber || 0) === currentCycleNumber
+//   );
+
+//   return {
+//     currentEvents: cycleTaggedEvents,
+//     lastReset,
+//     resetEvents,
+//     currentCycleNumber,
+//     source: 'event-cycle-number',
+//   };
+// }
+
+
 function getCurrentCycleEvents(allEvents, totalCycles) {
   const sorted = sortByChainPoint(allEvents);
   const resetEvents = getResetEvents(sorted);
@@ -414,36 +453,37 @@ function getCurrentCycleEvents(allEvents, totalCycles) {
 
   const currentCycleNumber = Number(totalCycles || 0) + 1;
 
-  const eventsAfterReset = sorted.filter(
-    (event) =>
-      event.eventName !== 'OrbitReset' &&
-      isAfterResetBoundary(event, lastReset)
-  );
-
-  if (eventsAfterReset.length > 0) {
-    return {
-      currentEvents: eventsAfterReset,
-      lastReset,
-      resetEvents,
-      currentCycleNumber,
-      source: 'reset-boundary',
-    };
-  }
-
   const cycleTaggedEvents = sorted.filter(
     (event) =>
       event.eventName !== 'OrbitReset' &&
       Number(event.cycleNumber || 0) === currentCycleNumber
   );
 
+  if (cycleTaggedEvents.length > 0) {
+    return {
+      currentEvents: cycleTaggedEvents,
+      lastReset,
+      resetEvents,
+      currentCycleNumber,
+      source: 'event-cycle-number',
+    };
+  }
+
+  const eventsAfterReset = sorted.filter(
+    (event) =>
+      event.eventName !== 'OrbitReset' &&
+      isAfterResetBoundary(event, lastReset)
+  );
+
   return {
-    currentEvents: cycleTaggedEvents,
+    currentEvents: eventsAfterReset,
     lastReset,
     resetEvents,
     currentCycleNumber,
-    source: 'event-cycle-number',
+    source: 'reset-boundary-fallback',
   };
 }
+
 
 function getCurrentCycleReceipts(allReceipts, lastReset, currentCycleNumber) {
   const cycleTaggedReceipts = allReceipts.filter(
@@ -782,13 +822,14 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
     //   currentEvents,
     //   currentReceipts,
     // })
-    shouldPreserveExistingSnapshot({
-        existingSnapshot,
-        rebuiltPositions: positions,
-        currentEvents,
-        currentReceipts,
-        lastReset,
-      })
+      shouldPreserveExistingSnapshot({
+      existingSnapshot,
+      rebuiltPositions: positions,
+      currentEvents,
+      currentReceipts,
+      lastReset,
+      currentCycleNumber,
+    })
   ) {
     const preserved = preserveExistingSnapshotShape({
       existingSnapshot,
