@@ -1,186 +1,1831 @@
-[
-  {
-    "type": "function",
-    "name": "owner",
-    "inputs": [],
-    "outputs": [{ "name": "", "type": "address" }],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "guardian",
-    "inputs": [],
-    "outputs": [{ "name": "", "type": "address" }],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "id1Wallet",
-    "inputs": [],
-    "outputs": [{ "name": "", "type": "address" }],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getUserDetailedPayoutReceiptCount",
-    "inputs": [
-      { "name": "user", "type": "address" }
-    ],
-    "outputs": [
-      { "name": "", "type": "uint256" }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getUserDetailedPayoutReceipts",
-    "inputs": [
-      { "name": "user", "type": "address" },
-      { "name": "offset", "type": "uint256" },
-      { "name": "limit", "type": "uint256" }
-    ],
-    "outputs": [
-      {
-        "name": "receipts",
-        "type": "tuple[]",
-        "components": [
-          { "name": "activationId", "type": "uint256" },
-          { "name": "receiptType", "type": "uint8" },
-          { "name": "level", "type": "uint8" },
-          { "name": "timestamp", "type": "uint40" },
-          { "name": "receiver", "type": "address" },
-          { "name": "fromUser", "type": "address" },
-          { "name": "orbitOwner", "type": "address" },
-          { "name": "sourcePosition", "type": "uint8" },
-          { "name": "sourceCycle", "type": "uint32" },
-          { "name": "mirroredPosition", "type": "uint8" },
-          { "name": "mirroredCycle", "type": "uint32" },
-          { "name": "routedRole", "type": "uint8" },
-          { "name": "grossAmount", "type": "uint256" },
-          { "name": "escrowLocked", "type": "uint256" },
-          { "name": "liquidPaid", "type": "uint256" }
-        ]
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getActivationDetailedPayoutReceiptCount",
-    "inputs": [
-      { "name": "activationId", "type": "uint256" }
-    ],
-    "outputs": [
-      { "name": "", "type": "uint256" }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getActivationDetailedPayoutReceipts",
-    "inputs": [
-      { "name": "activationId", "type": "uint256" },
-      { "name": "offset", "type": "uint256" },
-      { "name": "limit", "type": "uint256" }
-    ],
-    "outputs": [
-      {
-        "name": "receipts",
-        "type": "tuple[]",
-        "components": [
-          { "name": "activationId", "type": "uint256" },
-          { "name": "receiptType", "type": "uint8" },
-          { "name": "level", "type": "uint8" },
-          { "name": "timestamp", "type": "uint40" },
-          { "name": "receiver", "type": "address" },
-          { "name": "fromUser", "type": "address" },
-          { "name": "orbitOwner", "type": "address" },
-          { "name": "sourcePosition", "type": "uint8" },
-          { "name": "sourceCycle", "type": "uint32" },
-          { "name": "mirroredPosition", "type": "uint8" },
-          { "name": "mirroredCycle", "type": "uint32" },
-          { "name": "routedRole", "type": "uint8" },
-          { "name": "grossAmount", "type": "uint256" },
-          { "name": "escrowLocked", "type": "uint256" },
-          { "name": "liquidPaid", "type": "uint256" }
-        ]
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "anonymous": false,
-    "type": "event",
-    "name": "DetailedPayoutReceiptRecorded",
-    "inputs": [
-      { "indexed": true, "name": "receiver", "type": "address" },
-      { "indexed": true, "name": "activationId", "type": "uint256" },
-      { "indexed": true, "name": "level", "type": "uint8" },
-      { "indexed": false, "name": "receiptType", "type": "uint8" },
-      { "indexed": false, "name": "fromUser", "type": "address" },
-      { "indexed": false, "name": "orbitOwner", "type": "address" },
-      { "indexed": false, "name": "sourcePosition", "type": "uint8" },
-      { "indexed": false, "name": "sourceCycle", "type": "uint32" },
-      { "indexed": false, "name": "mirroredPosition", "type": "uint8" },
-      { "indexed": false, "name": "mirroredCycle", "type": "uint32" },
-      { "indexed": false, "name": "routedRole", "type": "uint8" },
-      { "indexed": false, "name": "grossAmount", "type": "uint256" },
-      { "indexed": false, "name": "escrowLocked", "type": "uint256" },
-      { "indexed": false, "name": "liquidPaid", "type": "uint256" }
-    ]
-  },
-  {
-    "anonymous": false,
-    "type": "event",
-    "name": "PayoutReceiptRecorded",
-    "inputs": [
-      { "indexed": true, "name": "receiver", "type": "address" },
-      { "indexed": true, "name": "level", "type": "uint8" },
-      { "indexed": true, "name": "receiptType", "type": "uint8" },
-      { "indexed": false, "name": "fromUser", "type": "address" },
-      { "indexed": false, "name": "orbitOwner", "type": "address" },
-      { "indexed": false, "name": "grossAmount", "type": "uint256" },
-      { "indexed": false, "name": "escrowLocked", "type": "uint256" },
-      { "indexed": false, "name": "liquidPaid", "type": "uint256" }
-    ]
-  },
-  {
-    "anonymous": false,
-    "type": "event",
-    "name": "LevelActivated",
-    "inputs": [
-      { "indexed": true, "name": "user", "type": "address" },
-      { "indexed": false, "name": "level", "type": "uint8" },
-      { "indexed": false, "name": "amount", "type": "uint256" }
-    ]
-  },
-  {
-    "anonymous": false,
-    "type": "event",
-    "name": "AutoUpgradeTriggered",
-    "inputs": [
-      { "indexed": true, "name": "user", "type": "address" },
-      { "indexed": false, "name": "fromLevel", "type": "uint8" },
-      { "indexed": false, "name": "toLevel", "type": "uint8" }
-    ]
-  },
-  {
-    "anonymous": false,
-    "type": "event",
-    "name": "FounderRepActivated",
-    "inputs": [
-      { "indexed": true, "name": "user", "type": "address" },
-      { "indexed": false, "name": "level", "type": "uint8" },
-      { "indexed": false, "name": "totalActivated", "type": "uint8" }
-    ]
-  },
-  {
-    "anonymous": false,
-    "type": "event",
-    "name": "SystemChargeDistributed",
-    "inputs": [
-      { "indexed": false, "name": "nftPoolAmount", "type": "uint256" },
-      { "indexed": false, "name": "operationsAmount", "type": "uint256" }
-    ]
-  }
-]
+ [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "target",
+          "type": "address"
+        }
+      ],
+      "name": "AddressEmptyCode",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "AddressInsufficientBalance",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "implementation",
+          "type": "address"
+        }
+      ],
+      "name": "ERC1967InvalidImplementation",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ERC1967NonPayable",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "EnforcedPause",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ExpectedPause",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "FailedInnerCall",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "InvalidInitialization",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NotInitializing",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "owner",
+          "type": "address"
+        }
+      ],
+      "name": "OwnableInvalidOwner",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "OwnableUnauthorizedAccount",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ReentrancyGuardReentrantCall",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "token",
+          "type": "address"
+        }
+      ],
+      "name": "SafeERC20FailedOperation",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "UUPSUnauthorizedCallContext",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "slot",
+          "type": "bytes32"
+        }
+      ],
+      "name": "UUPSUnsupportedProxiableUUID",
+      "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "fromLevel",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "toLevel",
+          "type": "uint8"
+        }
+      ],
+      "name": "AutoUpgradeTriggered",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "activatingUser",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "level",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "sponsor",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "note",
+          "type": "string"
+        }
+      ],
+      "name": "DebugSponsorChosen",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "receiver",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "activationId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "uint8",
+          "name": "level",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "receiptType",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "fromUser",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "orbitOwner",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "sourcePosition",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint32",
+          "name": "sourceCycle",
+          "type": "uint32"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "mirroredPosition",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint32",
+          "name": "mirroredCycle",
+          "type": "uint32"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "routedRole",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "grossAmount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "escrowLocked",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "liquidPaid",
+          "type": "uint256"
+        }
+      ],
+      "name": "DetailedPayoutReceiptRecorded",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "totalAmount",
+          "type": "uint256"
+        }
+      ],
+      "name": "FounderIncomeDistributed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "level",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "totalActivated",
+          "type": "uint8"
+        }
+      ],
+      "name": "FounderRepActivated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address[]",
+          "name": "reps",
+          "type": "address[]"
+        }
+      ],
+      "name": "FounderRepsUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address[]",
+          "name": "wallets",
+          "type": "address[]"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256[]",
+          "name": "ratios",
+          "type": "uint256[]"
+        }
+      ],
+      "name": "FounderWalletsUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "id1Wallet",
+          "type": "address"
+        }
+      ],
+      "name": "ID1WalletSet",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint64",
+          "name": "version",
+          "type": "uint64"
+        }
+      ],
+      "name": "Initialized",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "level",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "LevelActivated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "level",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "orbit",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "netAmount",
+          "type": "uint256"
+        }
+      ],
+      "name": "LevelActivatedInOrbit",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "previousOwner",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "OwnershipTransferred",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "Paused",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "receiver",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "uint8",
+          "name": "level",
+          "type": "uint8"
+        },
+        {
+          "indexed": true,
+          "internalType": "uint8",
+          "name": "receiptType",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "fromUser",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "orbitOwner",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "grossAmount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "escrowLocked",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "liquidPaid",
+          "type": "uint256"
+        }
+      ],
+      "name": "PayoutReceiptRecorded",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "reason",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "orbitOwner",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "level",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "RecycleError",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "nftPoolAmount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "operationsAmount",
+          "type": "uint256"
+        }
+      ],
+      "name": "SystemChargeDistributed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "oldController",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "newController",
+          "type": "address"
+        }
+      ],
+      "name": "TokenControllerUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "Unpaused",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "implementation",
+          "type": "address"
+        }
+      ],
+      "name": "Upgraded",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "RECEIPT_DIRECT_OWNER",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "RECEIPT_FOUNDER_PATH",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "RECEIPT_RECYCLE",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "RECEIPT_ROUTED_SPILLOVER",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "ROUTED_ROLE_FOUNDER_PATH",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "ROUTED_ROLE_OWNER",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "ROUTED_ROLE_RECYCLE",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "ROUTED_ROLE_SPILLOVER1",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "ROUTED_ROLE_SPILLOVER2",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "UPGRADE_INTERFACE_VERSION",
+      "outputs": [
+        {
+          "internalType": "string",
+          "name": "",
+          "type": "string"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "internalType": "uint8",
+          "name": "level",
+          "type": "uint8"
+        }
+      ],
+      "name": "activateLevel",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "approveEscrow",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "escrow",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "founderRatios",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "founderRepAllLevelsCompleted",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "founderRepLevelsActivated",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "founderRepUsed",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "founderRepresentative",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "founderWallets",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "activationId",
+          "type": "uint256"
+        }
+      ],
+      "name": "getActivationDetailedPayoutReceiptCount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "activationId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "offset",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "limit",
+          "type": "uint256"
+        }
+      ],
+      "name": "getActivationDetailedPayoutReceipts",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "uint256",
+              "name": "activationId",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint8",
+              "name": "receiptType",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint8",
+              "name": "level",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint40",
+              "name": "timestamp",
+              "type": "uint40"
+            },
+            {
+              "internalType": "address",
+              "name": "receiver",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "fromUser",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "orbitOwner",
+              "type": "address"
+            },
+            {
+              "internalType": "uint8",
+              "name": "sourcePosition",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint32",
+              "name": "sourceCycle",
+              "type": "uint32"
+            },
+            {
+              "internalType": "uint8",
+              "name": "mirroredPosition",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint32",
+              "name": "mirroredCycle",
+              "type": "uint32"
+            },
+            {
+              "internalType": "uint8",
+              "name": "routedRole",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint256",
+              "name": "grossAmount",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "escrowLocked",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "liquidPaid",
+              "type": "uint256"
+            }
+          ],
+          "internalType": "struct LevelManager.DetailedPayoutReceipt[]",
+          "name": "receipts",
+          "type": "tuple[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "getFounderWallets",
+      "outputs": [
+        {
+          "internalType": "address[]",
+          "name": "",
+          "type": "address[]"
+        },
+        {
+          "internalType": "uint256[]",
+          "name": "",
+          "type": "uint256[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint8",
+          "name": "receiptType",
+          "type": "uint8"
+        }
+      ],
+      "name": "getReceiptTypeLabel",
+      "outputs": [
+        {
+          "internalType": "string",
+          "name": "",
+          "type": "string"
+        }
+      ],
+      "stateMutability": "pure",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        }
+      ],
+      "name": "getUserDetailedPayoutReceiptCount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "offset",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "limit",
+          "type": "uint256"
+        }
+      ],
+      "name": "getUserDetailedPayoutReceipts",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "uint256",
+              "name": "activationId",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint8",
+              "name": "receiptType",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint8",
+              "name": "level",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint40",
+              "name": "timestamp",
+              "type": "uint40"
+            },
+            {
+              "internalType": "address",
+              "name": "receiver",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "fromUser",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "orbitOwner",
+              "type": "address"
+            },
+            {
+              "internalType": "uint8",
+              "name": "sourcePosition",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint32",
+              "name": "sourceCycle",
+              "type": "uint32"
+            },
+            {
+              "internalType": "uint8",
+              "name": "mirroredPosition",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint32",
+              "name": "mirroredCycle",
+              "type": "uint32"
+            },
+            {
+              "internalType": "uint8",
+              "name": "routedRole",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint256",
+              "name": "grossAmount",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "escrowLocked",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "liquidPaid",
+              "type": "uint256"
+            }
+          ],
+          "internalType": "struct LevelManager.DetailedPayoutReceipt[]",
+          "name": "receipts",
+          "type": "tuple[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        }
+      ],
+      "name": "getUserPayoutReceiptCount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "offset",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "limit",
+          "type": "uint256"
+        }
+      ],
+      "name": "getUserPayoutReceipts",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "uint8",
+              "name": "receiptType",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint8",
+              "name": "level",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint40",
+              "name": "timestamp",
+              "type": "uint40"
+            },
+            {
+              "internalType": "address",
+              "name": "receiver",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "fromUser",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "orbitOwner",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "grossAmount",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "escrowLocked",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "liquidPaid",
+              "type": "uint256"
+            }
+          ],
+          "internalType": "struct LevelManager.PayoutReceipt[]",
+          "name": "receipts",
+          "type": "tuple[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "guardian",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "id1Wallet",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_usdt",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_nftPool",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_operationsWallet",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_registration",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_escrow",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_guardian",
+          "type": "address"
+        }
+      ],
+      "name": "initialize",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        }
+      ],
+      "name": "isFounderRep",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "isID1Downline",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "name": "levelPrices",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "name": "levelToOrbitType",
+      "outputs": [
+        {
+          "internalType": "string",
+          "name": "",
+          "type": "string"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        }
+      ],
+      "name": "markID1Downline",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "nextActivationId",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "nftPool",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "orbitOwner",
+          "type": "address"
+        },
+        {
+          "internalType": "uint8",
+          "name": "level",
+          "type": "uint8"
+        },
+        {
+          "internalType": "uint256",
+          "name": "recycleReward",
+          "type": "uint256"
+        }
+      ],
+      "name": "onOrbitRecycleCompleted",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "operationsWallet",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "owner",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "p12Orbit",
+      "outputs": [
+        {
+          "internalType": "contract P12Orbit",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "p39Orbit",
+      "outputs": [
+        {
+          "internalType": "contract P39Orbit",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "p4Orbit",
+      "outputs": [
+        {
+          "internalType": "contract P4Orbit",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "pause",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "paused",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "proxiableUUID",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "registration",
+      "outputs": [
+        {
+          "internalType": "contract IRegistration",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "renounceOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "internalType": "uint8",
+          "name": "level",
+          "type": "uint8"
+        }
+      ],
+      "name": "resolveSponsor",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "internalType": "bool",
+          "name": "status",
+          "type": "bool"
+        }
+      ],
+      "name": "setFounderRepInOrbits",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address[]",
+          "name": "reps",
+          "type": "address[]"
+        }
+      ],
+      "name": "setFounderRepresentatives",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address[]",
+          "name": "wallets",
+          "type": "address[]"
+        },
+        {
+          "internalType": "uint256[]",
+          "name": "ratios",
+          "type": "uint256[]"
+        }
+      ],
+      "name": "setFounderWallets",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_guardian",
+          "type": "address"
+        }
+      ],
+      "name": "setGuardian",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_id1Wallet",
+          "type": "address"
+        }
+      ],
+      "name": "setID1Wallet",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_p4Orbit",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_p12Orbit",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_p39Orbit",
+          "type": "address"
+        }
+      ],
+      "name": "setOrbitContracts",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_tokenController",
+          "type": "address"
+        }
+      ],
+      "name": "setTokenController",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "tokenController",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "transferOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "unpause",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_nftPool",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_operations",
+          "type": "address"
+        }
+      ],
+      "name": "updateChargeRecipients",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "newImplementation",
+          "type": "address"
+        },
+        {
+          "internalType": "bytes",
+          "name": "data",
+          "type": "bytes"
+        }
+      ],
+      "name": "upgradeToAndCall",
+      "outputs": [],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "usdt",
+      "outputs": [
+        {
+          "internalType": "contract IERC20",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        },
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "name": "userLevelActivated",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ]
