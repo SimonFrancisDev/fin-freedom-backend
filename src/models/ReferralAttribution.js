@@ -48,6 +48,18 @@ const ReferralAttributionSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+
+    consumedAt: {
+    type: Date,
+    index: true,
+    },
+
+    consumedByWalletAddress: {
+    type: String,
+    lowercase: true,
+    trim: true,
+    index: true,
+    },
   },
   {
     timestamps: true,
@@ -56,5 +68,6 @@ const ReferralAttributionSchema = new mongoose.Schema(
 
 ReferralAttributionSchema.index({ visitorId: 1, expiresAt: 1 })
 ReferralAttributionSchema.index({ walletAddress: 1, expiresAt: 1 })
+ReferralAttributionSchema.index({ visitorId: 1, consumedAt: 1, expiresAt: 1 })
 
 export default mongoose.model('ReferralAttribution', ReferralAttributionSchema)
