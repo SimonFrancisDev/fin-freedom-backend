@@ -83,17 +83,100 @@ async function findActiveWalletLock(walletAddress) {
     .lean()
 }
 
+function visitorOnlyBaseQuery(cleanVisitorId) {
+  return {
+    visitorId: cleanVisitorId,
+    $or: [
+      { walletAddress: { $exists: false } },
+      { walletAddress: null },
+      { walletAddress: '' },
+    ],
+    consumedAt: { $exists: false },
+    expiresAt: { $gt: new Date() },
+  }
+}
+
 async function findActiveVisitorLock(visitorId) {
   const cleanVisitorId = normalizeText(visitorId)
   if (!cleanVisitorId) return null
 
   return ReferralAttribution.findOne({
-    visitorId: cleanVisitorId,
-    walletAddress: { $exists: false },
-    consumedAt: { $exists: false },
-    expiresAt: { $gt: new Date() },
+    ...visitorOnlyBaseQuery(cleanVisitorId),
+    $and: [
+      {
+        $or: [
+          { pendingWalletAddress: { $exists: false } },
+          { pendingWalletAddress: null },
+          { pendingWalletAddress: '' },
+        ],
+      },
+    ],
   })
     .sort({ createdAt: 1 })
+    .lean()
+}
+
+async function findOrReserveVisitorLockForWallet({ visitorId, walletAddress }) {
+  const cleanVisitorId = normalizeText(visitorId)
+  const cleanWallet = normalizeWallet(walletAddress)
+
+  if (!cleanVisitorId || !cleanWallet) return null
+
+  const existingForThisWallet = await ReferralAttribution.findOne({
+    ...visitorOnlyBaseQuery(cleanVisitorId),
+    pendingWalletAddress: cleanWallet,
+  })
+    .sort({ pendingAt: 1, createdAt: 1 })
+    .lean()
+
+  if (existingForThisWallet) {
+    return existingForThisWallet
+  }
+
+  const reservedByAnotherWallet = await ReferralAttribution.findOne({
+    ...visitorOnlyBaseQuery(cleanVisitorId),
+    pendingWalletAddress: { $exists: true, $nin: [null, '', cleanWallet] },
+  })
+    .sort({ pendingAt: 1, createdAt: 1 })
+    .lean()
+
+  if (reservedByAnotherWallet) {
+    return null
+  }
+
+  return ReferralAttribution.findOneAndUpdate(
+    {
+      ...visitorOnlyBaseQuery(cleanVisitorId),
+      $or: [
+        { pendingWalletAddress: { $exists: false } },
+        { pendingWalletAddress: null },
+        { pendingWalletAddress: '' },
+      ],
+    },
+    {
+      $set: {
+        pendingWalletAddress: cleanWallet,
+        pendingAt: new Date(),
+      },
+    },
+    {
+      new: true,
+      sort: { createdAt: 1 },
+    }
+  ).lean()
+}
+
+async function findVisitorReferralReservedForAnotherWallet({ visitorId, walletAddress }) {
+  const cleanVisitorId = normalizeText(visitorId)
+  const cleanWallet = normalizeWallet(walletAddress)
+
+  if (!cleanVisitorId || !cleanWallet) return null
+
+  return ReferralAttribution.findOne({
+    ...visitorOnlyBaseQuery(cleanVisitorId),
+    pendingWalletAddress: { $exists: true, $nin: [null, '', cleanWallet] },
+  })
+    .sort({ pendingAt: 1, createdAt: 1 })
     .lean()
 }
 
@@ -103,7 +186,11 @@ async function findConsumedVisitorLock(visitorId) {
 
   return ReferralAttribution.findOne({
     visitorId: cleanVisitorId,
-    walletAddress: { $exists: false },
+    $or: [
+      { walletAddress: { $exists: false } },
+      { walletAddress: null },
+      { walletAddress: '' },
+    ],
     consumedAt: { $exists: true },
     expiresAt: { $gt: new Date() },
   })
@@ -117,12 +204,15 @@ async function consumeVisitorReferral({ visitorId, walletAddress }) {
 
   if (!cleanVisitorId || !cleanWallet) return
 
-  await ReferralAttribution.updateMany(
+  const result = await ReferralAttribution.updateMany(
     {
-      visitorId: cleanVisitorId,
-      walletAddress: { $exists: false },
-      consumedAt: { $exists: false },
-      expiresAt: { $gt: new Date() },
+      ...visitorOnlyBaseQuery(cleanVisitorId),
+      $or: [
+        { pendingWalletAddress: cleanWallet },
+        { pendingWalletAddress: { $exists: false } },
+        { pendingWalletAddress: null },
+        { pendingWalletAddress: '' },
+      ],
     },
     {
       $set: {
@@ -131,6 +221,13 @@ async function consumeVisitorReferral({ visitorId, walletAddress }) {
       },
     }
   )
+
+  console.log('[REFERRAL_VISITOR_CONSUMED]', {
+    visitorId: cleanVisitorId,
+    walletAddress: cleanWallet,
+    matchedCount: result.matchedCount,
+    modifiedCount: result.modifiedCount,
+  })
 }
 
 /**
@@ -156,16 +253,38 @@ export async function getActiveReferralLock({ visitorId, walletAddress }) {
       })
     }
 
-    const visitorLock = await findActiveVisitorLock(cleanVisitorId)
+    const visitorLockForThisWallet = await findOrReserveVisitorLockForWallet({
+      visitorId: cleanVisitorId,
+      walletAddress: cleanWallet,
+    })
 
-    if (visitorLock) {
-      return serializeLock(visitorLock, {
+    if (visitorLockForThisWallet) {
+      return serializeLock(visitorLockForThisWallet, {
         scope: 'visitor',
         pendingWalletBinding: true,
         canOverride: false,
+        reservedForWallet: cleanWallet,
         message:
-          'A referral was found for this browser. It is pending for this wallet and will be locked only if this wallet registers.',
+          'A referral was found for this browser and reserved for this wallet. It will be locked only if this wallet registers.',
       })
+    }
+
+    const reservedForAnotherWallet = await findVisitorReferralReservedForAnotherWallet({
+      visitorId: cleanVisitorId,
+      walletAddress: cleanWallet,
+    })
+
+    if (reservedForAnotherWallet) {
+      return {
+        locked: false,
+        canOverride: true,
+        scope: 'wallet',
+        pendingWalletBinding: false,
+        referralReservedForAnotherWallet: true,
+        reservedWalletAddress: reservedForAnotherWallet.pendingWalletAddress,
+        message:
+          'This browser referral is already reserved for another wallet. It will not be suggested for this wallet.',
+      }
     }
 
     const consumedVisitorLock = await findConsumedVisitorLock(cleanVisitorId)
@@ -262,15 +381,47 @@ export async function lockReferralAttribution({
    * Create/restore visitor lock only.
    */
   if (!isRegistrationLock && !isManualInput && !isSystem) {
+    if (cleanWallet) {
+      const visitorLockForThisWallet = await findOrReserveVisitorLockForWallet({
+        visitorId: cleanVisitorId,
+        walletAddress: cleanWallet,
+      })
+
+      if (visitorLockForThisWallet) {
+        return serializeLock(visitorLockForThisWallet, {
+          scope: 'visitor',
+          pendingWalletBinding: true,
+          reservedForWallet: cleanWallet,
+          message: 'Visitor referral reserved as pending for this wallet.',
+        })
+      }
+
+      const reservedForAnotherWallet = await findVisitorReferralReservedForAnotherWallet({
+        visitorId: cleanVisitorId,
+        walletAddress: cleanWallet,
+      })
+
+      if (reservedForAnotherWallet) {
+        return {
+          locked: false,
+          canOverride: true,
+          scope: 'wallet',
+          pendingWalletBinding: false,
+          referralReservedForAnotherWallet: true,
+          reservedWalletAddress: reservedForAnotherWallet.pendingWalletAddress,
+          message:
+            'This browser referral is already reserved for another wallet. It will not be suggested for this wallet.',
+        }
+      }
+    }
+
     const visitorLock = await findActiveVisitorLock(cleanVisitorId)
 
     if (visitorLock) {
       return serializeLock(visitorLock, {
         scope: 'visitor',
-        pendingWalletBinding: Boolean(cleanWallet),
-        message: cleanWallet
-          ? 'Visitor referral restored as pending for this wallet.'
-          : 'Existing visitor referral lock restored.',
+        pendingWalletBinding: false,
+        message: 'Existing visitor referral lock restored.',
       })
     }
 
@@ -307,21 +458,26 @@ export async function lockReferralAttribution({
 
     const created = await ReferralAttribution.create({
       visitorId: cleanVisitorId || undefined,
-      // Important: do not set walletAddress here.
-      // The wallet is only bound during registration.
       referrerCode: resolved.referrerCode,
       referrerWallet: resolved.referrerWallet,
       source: 'referral_link',
       expiresAt,
+      ...(cleanWallet
+        ? {
+            pendingWalletAddress: cleanWallet,
+            pendingAt: new Date(),
+          }
+        : {}),
     })
 
     return serializeLock(created.toObject(), {
       restored: false,
       scope: 'visitor',
       pendingWalletBinding: Boolean(cleanWallet),
+      reservedForWallet: cleanWallet || undefined,
       daysLeft: REFERRAL_LOCK_DAYS,
       message: cleanWallet
-        ? 'Referral saved for this browser and pending for this wallet.'
+        ? 'Referral saved for this browser and reserved for this wallet.'
         : 'Referral locked for this browser.',
     })
   }
@@ -350,6 +506,15 @@ export async function lockReferralAttribution({
   }
 
   if (!finalRef) {
+    finalRef = 'FIN-FREEDOM'
+  }
+
+  const reservedForAnotherWallet = await findVisitorReferralReservedForAnotherWallet({
+    visitorId: cleanVisitorId,
+    walletAddress: cleanWallet,
+  })
+
+  if (reservedForAnotherWallet && finalRef === reservedForAnotherWallet.referrerCode) {
     finalRef = 'FIN-FREEDOM'
   }
 

@@ -9,12 +9,24 @@ const ReferralAttributionSchema = new mongoose.Schema(
       trim: true,
     },
 
-    walletAddress: {
-      type: String,
-      lowercase: true,
-      index: true,
-      sparse: true,
-      trim: true,
+   walletAddress: {
+    type: String,
+    lowercase: true,
+    index: true,
+    sparse: true,
+    trim: true,
+    },
+
+    pendingWalletAddress: {
+    type: String,
+    lowercase: true,
+    trim: true,
+    index: true,
+    },
+
+    pendingAt: {
+    type: Date,
+    index: true,
     },
 
     referrerCode: {
@@ -68,6 +80,7 @@ const ReferralAttributionSchema = new mongoose.Schema(
 
 ReferralAttributionSchema.index({ visitorId: 1, expiresAt: 1 })
 ReferralAttributionSchema.index({ walletAddress: 1, expiresAt: 1 })
+ReferralAttributionSchema.index({ visitorId: 1, pendingWalletAddress: 1, expiresAt: 1 })
 ReferralAttributionSchema.index({ visitorId: 1, consumedAt: 1, expiresAt: 1 })
 
 export default mongoose.model('ReferralAttribution', ReferralAttributionSchema)
