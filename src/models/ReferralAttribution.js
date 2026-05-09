@@ -34,7 +34,8 @@ const ReferralAttributionSchema = new mongoose.Schema(
     source: {
       type: String,
       default: 'referral_link',
-      enum: ['referral_link', 'manual_input', 'system', 'restored'],
+    //   enum: ['referral_link', 'manual_input', 'system', 'restored'],
+    enum: ['referral_link', 'manual_input', 'system', 'restored', 'registration'],
     },
 
     lockedAt: {
