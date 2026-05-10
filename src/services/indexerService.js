@@ -450,16 +450,115 @@ export async function saveOrbitLog(chainId, orbitType, contractAddress, log, par
   });
 }
 
+// export async function saveTokenLog(chainId, tokenSymbol, log, parsed, block) {
+//   const args = parsed.args || {};
+//   const user = toLower(args.to || args.from || args.user || '');
+//   const reason = args.reason || '';
+
+//   // EXTRACTION LOGIC: Pull level from the reason string (e.g., "manualActivation:2")
+//   let level = 0;
+//   if (reason.includes(':')) {
+//     const parts = reason.split(':');
+//     level = Number(parts[1]) || 0;
+//   }
+
+//   await IndexedTokenEvent.updateOne(
+//     { txHash: toLower(log.transactionHash), logIndex: log.index },
+//     {
+//       $setOnInsert: {
+//         chainId,
+//         tokenSymbol,
+//         eventName: parsed.name,
+//         txHash: toLower(log.transactionHash),
+//         logIndex: log.index,
+//         blockNumber: log.blockNumber,
+//         userAddress: user,
+//         amount: stringifyBigInt(args.amount || 0),
+//         reason: reason, // Stores the full string like "manualActivation:2"
+//         level: level,  // New field to make filtering easy
+//         timestamp: toDateFromSeconds(block.timestamp),
+//       },
+//     },
+//     { upsert: true }
+//   );
+
+//     logDebug('[SAVED_TOKEN_EVENT]', {
+//     token: tokenSymbol,
+//     eventName: parsed.name,
+//     user,
+//     txHash: toLower(log.transactionHash)
+//   });
+// }
+
+
+
+
 export async function saveTokenLog(chainId, tokenSymbol, log, parsed, block) {
   const args = parsed.args || {};
   const user = toLower(args.to || args.from || args.user || '');
-  const reason = args.reason || '';
+  const reason = String(args.reason || '');
 
-  // EXTRACTION LOGIC: Pull level from the reason string (e.g., "manualActivation:2")
-  let level = 0;
-  if (reason.includes(':')) {
-    const parts = reason.split(':');
-    level = Number(parts[1]) || 0;
+  function extractLevelFromReason(reasonValue) {
+    const text = String(reasonValue || '');
+
+    const colonMatch = text.match(/:(\d+)/);
+    if (colonMatch) {
+      const level = Number(colonMatch[1]);
+      if (Number.isInteger(level) && level >= 1 && level <= 10) return level;
+    }
+
+    const levelMatch = text.match(/level\D*(\d+)/i);
+    if (levelMatch) {
+      const level = Number(levelMatch[1]);
+      if (Number.isInteger(level) && level >= 1 && level <= 10) return level;
+    }
+
+    return 0;
+  }
+
+  async function findLevelFromSameTx() {
+    const txHash = toLower(log.transactionHash);
+
+    const registrationEvent = await IndexedRegistrationEvent.findOne({
+      txHash,
+      level: { $gte: 1, $lte: 10 },
+    })
+      .sort({ logIndex: -1 })
+      .lean();
+
+    if (registrationEvent?.level) {
+      return Number(registrationEvent.level);
+    }
+
+    const receipt = await IndexedReceipt.findOne({
+      txHash,
+      level: { $gte: 1, $lte: 10 },
+    })
+      .sort({ logIndex: -1 })
+      .lean();
+
+    if (receipt?.level) {
+      return Number(receipt.level);
+    }
+
+    const orbitEvent = await IndexedOrbitEvent.findOne({
+      txHash,
+      level: { $gte: 1, $lte: 10 },
+    })
+      .sort({ logIndex: -1 })
+      .lean();
+
+    if (orbitEvent?.level) {
+      return Number(orbitEvent.level);
+    }
+
+    return 0;
+  }
+
+  let level = extractLevelFromReason(reason);
+
+  if (!level) {
+    level = await findLevelFromSameTx();
   }
 
   await IndexedTokenEvent.updateOne(
@@ -474,21 +573,26 @@ export async function saveTokenLog(chainId, tokenSymbol, log, parsed, block) {
         blockNumber: log.blockNumber,
         userAddress: user,
         amount: stringifyBigInt(args.amount || 0),
-        reason: reason, // Stores the full string like "manualActivation:2"
-        level: level,  // New field to make filtering easy
+        reason,
+        level,
         timestamp: toDateFromSeconds(block.timestamp),
       },
     },
     { upsert: true }
   );
 
-    logDebug('[SAVED_TOKEN_EVENT]', {
+  logDebug('[SAVED_TOKEN_EVENT]', {
     token: tokenSymbol,
     eventName: parsed.name,
     user,
-    txHash: toLower(log.transactionHash)
+    reason,
+    level,
+    txHash: toLower(log.transactionHash),
   });
 }
+
+
+
 
 async function processLogsForContract({
   contract,
