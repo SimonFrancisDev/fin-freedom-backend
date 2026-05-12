@@ -2,7 +2,9 @@ import SyncState from '../models/SyncState.js';
 import IndexedReceipt from '../models/IndexedReceipt.js';
 import IndexedOrbitEvent from '../models/IndexedOrbitEvent.js';
 import IndexedRegistrationEvent from '../models/IndexedRegistrationEvent.js';
-import IndexedTokenEvent from '../models/IndexedTokenEvent.js'; 
+import IndexedTokenEvent from '../models/IndexedTokenEvent.js';
+import IndexedEscrowEvent from '../models/IndexedEscrowEvent.js';
+import IndexedActivationSummary from '../models/IndexedActivationSummary.js';
 import {
   safeRpcCall,
   getProviderHealthSnapshot,
@@ -103,6 +105,7 @@ const LIVE_TAIL_WINDOW_BLOCKS =20;
 const LIVE_TAIL_TARGET_KEYS = new Set([
   'registration',
   'levelManager',
+  'autoUpgradeEscrow',
   'p4Orbit',
   'p12Orbit',
   'p39Orbit',
@@ -145,6 +148,7 @@ function getTargetChunkSize(targetKey, syncChunkSize) {
   const preferred = {
     registration: 10,
     levelManager: 6,
+    autoUpgradeEscrow: 6,
     p4Orbit: 5,
     p12Orbit: 3,
     p39Orbit: 2,
@@ -284,6 +288,136 @@ export async function saveRegistrationLog(chainId, contractAddress, log, parsed,
   });
 }
 
+export async function saveEscrowLog(chainId, contractAddress, log, parsed, block) {
+  const args = parsed.args || {};
+  const eventName = parsed.name;
+
+  const user = toLower(args.user ?? args[0] ?? '');
+  const fromLevel = Number(args.fromLevel ?? args[1] ?? 0);
+  const toLevel = Number(args.toLevel ?? args[2] ?? 0);
+
+  let amount = '0';
+  let newLockedTotal = '0';
+  let currentEscrowLockedGlobal = '0';
+  let recipient = '';
+
+  if (eventName === 'EscrowLocked') {
+    amount = stringifyBigInt(args.amount ?? args[3] ?? 0);
+    newLockedTotal = stringifyBigInt(args.newLockedTotal ?? args[4] ?? 0);
+    currentEscrowLockedGlobal = stringifyBigInt(args.currentEscrowLockedGlobal ?? args[5] ?? 0);
+  }
+
+  if (eventName === 'EscrowUsedForUpgrade') {
+    amount = stringifyBigInt(args.amount ?? args[3] ?? 0);
+    recipient = toLower(args.recipient ?? args[4] ?? '');
+    currentEscrowLockedGlobal = stringifyBigInt(args.currentEscrowLockedGlobal ?? args[5] ?? 0);
+  }
+
+  if (eventName === 'EscrowReleasedToUser') {
+    amount = stringifyBigInt(args.amount ?? args[3] ?? 0);
+    currentEscrowLockedGlobal = stringifyBigInt(args.currentEscrowLockedGlobal ?? args[4] ?? 0);
+  }
+
+  if (!user || !fromLevel || !toLevel) {
+    console.warn('[ESCROW_EVENT_MISSING_CORE_FIELDS]', {
+      eventName,
+      txHash: log.transactionHash,
+      logIndex: log.index,
+      args,
+    });
+    return;
+  }
+
+  await IndexedEscrowEvent.updateOne(
+    { txHash: toLower(log.transactionHash), logIndex: log.index },
+    {
+      $setOnInsert: {
+        chainId,
+        txHash: toLower(log.transactionHash),
+        logIndex: log.index,
+        blockNumber: log.blockNumber,
+        blockHash: toLower(log.blockHash),
+        contractAddress: toLower(contractAddress),
+        eventName,
+        user,
+        fromLevel,
+        toLevel,
+        amount,
+        newLockedTotal,
+        currentEscrowLockedGlobal,
+        recipient,
+        timestamp: toDateFromSeconds(block.timestamp),
+        raw: Object.fromEntries(
+          Object.entries(args).map(([k, v]) => [
+            k,
+            typeof v === 'bigint' ? v.toString() : v,
+          ])
+        ),
+      },
+    },
+    { upsert: true }
+  );
+
+  logDebug('[SAVED_ESCROW_EVENT]', {
+    eventName,
+    user,
+    fromLevel,
+    toLevel,
+    amount,
+    txHash: toLower(log.transactionHash),
+    logIndex: log.index,
+  });
+}
+
+export async function saveActivationSummaryLog(chainId, log, parsed, block) {
+  const args = parsed.args || {};
+
+  await IndexedActivationSummary.updateOne(
+    { txHash: toLower(log.transactionHash), logIndex: log.index },
+    {
+      $setOnInsert: {
+        chainId,
+        txHash: toLower(log.transactionHash),
+        logIndex: log.index,
+        blockNumber: log.blockNumber,
+        blockHash: toLower(log.blockHash),
+
+        activationId: stringifyBigInt(args.activationId ?? args[0] ?? 0),
+        user: toLower(args.user ?? args[1] ?? ''),
+        level: Number(args.level ?? args[2] ?? 0),
+
+        activationAmount: stringifyBigInt(args.activationAmount ?? args[3] ?? 0),
+        systemCharge: stringifyBigInt(args.systemCharge ?? args[4] ?? 0),
+        nftPoolAmount: stringifyBigInt(args.nftPoolAmount ?? args[5] ?? 0),
+        operationsAmount: stringifyBigInt(args.operationsAmount ?? args[6] ?? 0),
+        totalLiquidPaid: stringifyBigInt(args.totalLiquidPaid ?? args[7] ?? 0),
+        totalEscrowLocked: stringifyBigInt(args.totalEscrowLocked ?? args[8] ?? 0),
+        totalRecycleAllocated: stringifyBigInt(args.totalRecycleAllocated ?? args[9] ?? 0),
+
+        isAutoUpgrade: Boolean(args.isAutoUpgrade ?? args[10] ?? false),
+        isFounderRepFreeActivation: Boolean(args.isFounderRepFreeActivation ?? args[11] ?? false),
+
+        timestamp: toDateFromSeconds(block.timestamp),
+        raw: Object.fromEntries(
+          Object.entries(args).map(([k, v]) => [
+            k,
+            typeof v === 'bigint' ? v.toString() : v,
+          ])
+        ),
+      },
+    },
+    { upsert: true }
+  );
+
+  logDebug('[SAVED_ACTIVATION_SUMMARY]', {
+    txHash: toLower(log.transactionHash),
+    logIndex: log.index,
+    activationId: stringifyBigInt(args.activationId ?? args[0] ?? 0),
+    user: toLower(args.user ?? args[1] ?? ''),
+    level: Number(args.level ?? args[2] ?? 0),
+  });
+}
+
 export async function saveOrbitLog(chainId, orbitType, contractAddress, log, parsed, block) {
   const args = parsed.args || {};
   const eventName = parsed.name;
@@ -390,6 +524,22 @@ export async function saveOrbitLog(chainId, orbitType, contractAddress, log, par
       break;
     }
 
+    case 'PositionActivationLinked': {
+      orbitOwner = toLower(args.orbitOwner ?? args[0] ?? '');
+      level = Number(args.level ?? args[1] ?? 0);
+      position = Number(args.position ?? args[2] ?? 0);
+      cycleNumber = Number(args.cycleNumber ?? args[3] ?? 0);
+      break;
+    }
+
+    case 'OrbitDependencyUpdated': {
+      orbitOwner = toLower(args.oldAddress ?? args[1] ?? '');
+      user = toLower(args.newAddress ?? args[2] ?? '');
+      level = 0;
+      cycleNumber = 0;
+      break;
+    }
+
     default:
       return;
   }
@@ -449,49 +599,6 @@ export async function saveOrbitLog(chainId, orbitType, contractAddress, log, par
     blockNumber: log.blockNumber,
   });
 }
-
-// export async function saveTokenLog(chainId, tokenSymbol, log, parsed, block) {
-//   const args = parsed.args || {};
-//   const user = toLower(args.to || args.from || args.user || '');
-//   const reason = args.reason || '';
-
-//   // EXTRACTION LOGIC: Pull level from the reason string (e.g., "manualActivation:2")
-//   let level = 0;
-//   if (reason.includes(':')) {
-//     const parts = reason.split(':');
-//     level = Number(parts[1]) || 0;
-//   }
-
-//   await IndexedTokenEvent.updateOne(
-//     { txHash: toLower(log.transactionHash), logIndex: log.index },
-//     {
-//       $setOnInsert: {
-//         chainId,
-//         tokenSymbol,
-//         eventName: parsed.name,
-//         txHash: toLower(log.transactionHash),
-//         logIndex: log.index,
-//         blockNumber: log.blockNumber,
-//         userAddress: user,
-//         amount: stringifyBigInt(args.amount || 0),
-//         reason: reason, // Stores the full string like "manualActivation:2"
-//         level: level,  // New field to make filtering easy
-//         timestamp: toDateFromSeconds(block.timestamp),
-//       },
-//     },
-//     { upsert: true }
-//   );
-
-//     logDebug('[SAVED_TOKEN_EVENT]', {
-//     token: tokenSymbol,
-//     eventName: parsed.name,
-//     user,
-//     txHash: toLower(log.transactionHash)
-//   });
-// }
-
-
-
 
 export async function saveTokenLog(chainId, tokenSymbol, log, parsed, block) {
   const args = parsed.args || {};
@@ -591,9 +698,6 @@ export async function saveTokenLog(chainId, tokenSymbol, log, parsed, block) {
   });
 }
 
-
-
-
 async function processLogsForContract({
   contract,
   contractKey,
@@ -610,14 +714,6 @@ async function processLogsForContract({
       toBlock,
     })
   );
-
-  // logDebug('[GET_LOGS_RESULT]', {
-  //   contractKey,
-  //   contractAddress,
-  //   fromBlock,
-  //   toBlock,
-  //   count: logs.length,
-  // });
 
   for (const log of logs) {
     let parsed;
@@ -647,16 +743,6 @@ async function processLogsForContract({
     });
 
     const block = await getBlockCached(log.blockNumber);
-    // if (!block) {
-    //   console.warn('[MISSING_BLOCK_FOR_LOG]', {
-    //     contractKey,
-    //     contractAddress,
-    //     txHash: log.transactionHash,
-    //     logIndex: log.index,
-    //     blockNumber: log.blockNumber,
-    //   });
-    //   continue;
-    // }
 
     if (!block) {
       throw new Error(
@@ -680,11 +766,23 @@ async function processLogsForContract({
       continue;
     }
 
+    if (contractKey === 'levelManager') {
+      if (parsed.name === 'DetailedPayoutReceiptRecorded') {
+        await saveReceiptLog(chainId, log, parsed, block);
+        continue;
+      }
+
+      if (parsed.name === 'ActivationFinancialSummaryRecorded') {
+        await saveActivationSummaryLog(chainId, log, parsed, block);
+        continue;
+      }
+    }
+
     if (
-      contractKey === 'levelManager' &&
-      parsed.name === 'DetailedPayoutReceiptRecorded'
+      contractKey === 'autoUpgradeEscrow' &&
+      ['EscrowLocked', 'EscrowUsedForUpgrade', 'EscrowReleasedToUser'].includes(parsed.name)
     ) {
-      await saveReceiptLog(chainId, log, parsed, block);
+      await saveEscrowLog(chainId, contractAddress, log, parsed, block);
       continue;
     }
 
@@ -698,6 +796,8 @@ async function processLogsForContract({
         'SpilloverPaid',
         'EscrowUpdated',
         'AutoUpgradeTriggered',
+        'PositionActivationLinked',
+        'OrbitDependencyUpdated',
       ].includes(parsed.name)
     ) {
       await saveOrbitLog(chainId, orbitType, contractAddress, log, parsed, block);
@@ -728,13 +828,22 @@ function buildTargets(contracts, starts, sync) {
       priority: 2,
     },
     {
+      key: 'autoUpgradeEscrow',
+      contract: contracts.autoUpgradeEscrow || contracts.escrow,
+      address: (contracts.autoUpgradeEscrow || contracts.escrow).target,
+      startBlock: starts.autoUpgradeEscrow ?? starts.escrow ?? starts.levelManager,
+      orbitType: null,
+      chunkSize: getTargetChunkSize('levelManager', sync.chunkSize),
+      priority: 3,
+    },
+    {
       key: 'p4Orbit',
       contract: contracts.p4Orbit,
       address: contracts.p4Orbit.target,
       startBlock: starts.p4Orbit,
       orbitType: 'P4',
       chunkSize: getTargetChunkSize('p4Orbit', sync.chunkSize),
-      priority: 3,
+      priority: 4,
     },
     {
       key: 'p12Orbit',
@@ -743,7 +852,7 @@ function buildTargets(contracts, starts, sync) {
       startBlock: starts.p12Orbit,
       orbitType: 'P12',
       chunkSize: getTargetChunkSize('p12Orbit', sync.chunkSize),
-      priority: 4,
+      priority: 5,
     },
     {
       key: 'p39Orbit',
@@ -752,7 +861,7 @@ function buildTargets(contracts, starts, sync) {
       startBlock: starts.p39Orbit,
       orbitType: 'P39',
       chunkSize: getTargetChunkSize('p39Orbit', sync.chunkSize),
-      priority: 5,
+      priority: 6,
     },
     {
       key: 'fgtToken',
@@ -760,8 +869,8 @@ function buildTargets(contracts, starts, sync) {
       address: contracts.fgtToken.target,
       startBlock: starts.fgtToken ?? starts.registration,
       orbitType: null,
-      chunkSize: getTargetChunkSize('levelManager', sync.chunkSize), // Use levelManager size as a safe base
-      priority: 6,
+      chunkSize: getTargetChunkSize('levelManager', sync.chunkSize),
+      priority: 7,
     },
     {
       key: 'fgtrToken',
@@ -770,7 +879,7 @@ function buildTargets(contracts, starts, sync) {
       startBlock: starts.fgtrToken ?? starts.registration,
       orbitType: null,
       chunkSize: getTargetChunkSize('levelManager', sync.chunkSize),
-      priority: 7,
+      priority: 8,
     },
   ];
 }
@@ -1077,17 +1186,6 @@ async function processLiveTailTarget({ chainId, latestBlock, target }) {
         chunkSize = Math.max(1, Math.floor(chunkSize / 2));
         continue;
       }
-
-      // if (isRateLimitError(error) || isOutOfCreditsError(error)) {
-      //   rateLimited = true;
-      //   const cooldownMs = isOutOfCreditsError(error)
-      //     ? Math.max(15000, Number(env.RPC_OUT_OF_CREDITS_COOLDOWN_MS) || 15000)
-      //     : 3000;
-
-      //   setTargetBackoff(target.key, cooldownMs);
-      //   break;
-      // }
-
 
       if (isRateLimitError(error) || isOutOfCreditsError(error)) {
         rateLimited = true;
@@ -1425,6 +1523,12 @@ export function stopIndexer() {
 
 
 
+
+
+
+
+
+
 // import SyncState from '../models/SyncState.js';
 // import IndexedReceipt from '../models/IndexedReceipt.js';
 // import IndexedOrbitEvent from '../models/IndexedOrbitEvent.js';
@@ -1488,6 +1592,7 @@ export function stopIndexer() {
 //     lower.includes('payment required') ||
 //     lower.includes('out of cu') ||
 //     lower.includes('out of credits') ||
+//     lower.includes('billing') ||
 //     lower.includes('quota exceeded') ||
 //     lower.includes('upgrade required')
 //   );
@@ -1523,7 +1628,6 @@ export function stopIndexer() {
 
 // const blockCache = new Map();
 // const targetBackoffUntil = new Map();
-// const cycleTracker = new Map();
 
 // const LIVE_TAIL_ENABLED = true;
 // const LIVE_TAIL_WINDOW_BLOCKS =20;
@@ -1628,28 +1732,6 @@ export function stopIndexer() {
 //   return state;
 // }
 
-// async function getCurrentCycleForOrbit(orbitType, orbitOwner, level) {
-//   const key = `${orbitType}-${orbitOwner}-${level}`;
-
-//   if (cycleTracker.has(key)) {
-//     return cycleTracker.get(key);
-//   }
-
-//   const lastReset = await IndexedOrbitEvent.findOne({
-//     orbitType,
-//     orbitOwner,
-//     level,
-//     eventName: 'OrbitReset',
-//   })
-//     .sort({ blockNumber: -1, logIndex: -1 })
-//     .lean();
-
-//   const currentCycle = lastReset ? Number(lastReset.cycleNumber || 0) + 1 : 1;
-
-//   cycleTracker.set(key, currentCycle);
-//   return currentCycle;
-// }
-
 // export async function saveReceiptLog(chainId, log, parsed, block) {
 //   const args = parsed.args;
 
@@ -1746,6 +1828,27 @@ export function stopIndexer() {
 //   let line = 0;
 //   let linePaymentNumber = 0;
 
+//   // Helper function to get cycle number from latest reset before this log
+//   async function getCycleNumberFromResets() {
+//     const latestReset = await IndexedOrbitEvent.findOne({
+//       orbitType,
+//       orbitOwner,
+//       level,
+//       eventName: 'OrbitReset',
+//       $or: [
+//         { blockNumber: { $lt: log.blockNumber } },
+//         {
+//           blockNumber: log.blockNumber,
+//           logIndex: { $lt: log.index },
+//         },
+//       ],
+//     })
+//       .sort({ blockNumber: -1, logIndex: -1 })
+//       .lean();
+
+//     return latestReset ? Number(latestReset.cycleNumber || 0) + 1 : 1;
+//   }
+
 //   switch (eventName) {
 //     case 'PositionFilled': {
 //       orbitOwner = toLower(args.orbitOwner ?? args[0] ?? '');
@@ -1753,7 +1856,7 @@ export function stopIndexer() {
 //       level = Number(args.level ?? args[2] ?? 0);
 //       position = Number(args.position ?? args[3] ?? 0);
 //       amount = stringifyBigInt(args.amount ?? args[4] ?? 0);
-//       cycleNumber = await getCurrentCycleForOrbit(orbitType, orbitOwner, level);
+//       cycleNumber = await getCycleNumberFromResets();
 //       break;
 //     }
 
@@ -1771,49 +1874,52 @@ export function stopIndexer() {
 //         });
 //         return;
 //       }
-
-//       cycleTracker.set(`${orbitType}-${orbitOwner}-${level}`, cycleNumber + 1);
 //       break;
 //     }
 
-//     case 'LinePaymentTracked':
+//     case 'LinePaymentTracked': {
 //       orbitOwner = toLower(args.orbitOwner ?? args[0] ?? '');
 //       level = Number(args.level ?? args[1] ?? 0);
 //       line = Number(args.line ?? args[2] ?? 0);
 //       linePaymentNumber = Number(args.linePaymentNumber ?? args[3] ?? 0);
 //       position = Number(args.position ?? args[4] ?? 0);
-//       cycleNumber = await getCurrentCycleForOrbit(orbitType, orbitOwner, level);
+//       cycleNumber = await getCycleNumberFromResets();
 //       break;
+//     }
 
-//     case 'PaymentRuleApplied':
+//     case 'PaymentRuleApplied': {
 //       orbitOwner = toLower(args.orbitOwner ?? args[0] ?? '');
 //       level = Number(args.level ?? args[1] ?? 0);
 //       position = Number(args.position ?? args[2] ?? 0);
 //       line = Number(args.line ?? args[3] ?? 0);
 //       linePaymentNumber = Number(args.linePaymentNumber ?? args[4] ?? 0);
-//       cycleNumber = await getCurrentCycleForOrbit(orbitType, orbitOwner, level);
+//       cycleNumber = await getCycleNumberFromResets();
 //       break;
+//     }
 
-//     case 'EscrowUpdated':
+//     case 'EscrowUpdated': {
 //       orbitOwner = toLower(args.orbitOwner ?? args.user ?? args[0] ?? '');
 //       level = Number(args.level ?? args[1] ?? 0);
-//       cycleNumber = await getCurrentCycleForOrbit(orbitType, orbitOwner, level);
+//       cycleNumber = await getCycleNumberFromResets();
 //       break;
+//     }
 
-//     case 'AutoUpgradeTriggered':
+//     case 'AutoUpgradeTriggered': {
 //       orbitOwner = toLower(args.user ?? args[0] ?? '');
 //       level = Number(args.fromLevel ?? args.level ?? args[1] ?? 0);
 //       amount = stringifyBigInt(args.amount ?? args[3] ?? 0);
-//       cycleNumber = await getCurrentCycleForOrbit(orbitType, orbitOwner, level);
+//       cycleNumber = await getCycleNumberFromResets();
 //       break;
+//     }
 
-//     case 'SpilloverPaid':
+//     case 'SpilloverPaid': {
 //       orbitOwner = toLower(args.orbitOwner ?? args.from ?? args[0] ?? '');
 //       user = toLower(args.to ?? args.user ?? args[1] ?? '');
 //       level = Number(args.level ?? args[2] ?? 0);
 //       amount = stringifyBigInt(args.amount ?? args[3] ?? 0);
-//       cycleNumber = await getCurrentCycleForOrbit(orbitType, orbitOwner, level);
+//       cycleNumber = await getCycleNumberFromResets();
 //       break;
+//     }
 
 //     default:
 //       return;
@@ -1875,18 +1981,115 @@ export function stopIndexer() {
 //   });
 // }
 
+// // export async function saveTokenLog(chainId, tokenSymbol, log, parsed, block) {
+// //   const args = parsed.args || {};
+// //   const user = toLower(args.to || args.from || args.user || '');
+// //   const reason = args.reason || '';
+
+// //   // EXTRACTION LOGIC: Pull level from the reason string (e.g., "manualActivation:2")
+// //   let level = 0;
+// //   if (reason.includes(':')) {
+// //     const parts = reason.split(':');
+// //     level = Number(parts[1]) || 0;
+// //   }
+
+// //   await IndexedTokenEvent.updateOne(
+// //     { txHash: toLower(log.transactionHash), logIndex: log.index },
+// //     {
+// //       $setOnInsert: {
+// //         chainId,
+// //         tokenSymbol,
+// //         eventName: parsed.name,
+// //         txHash: toLower(log.transactionHash),
+// //         logIndex: log.index,
+// //         blockNumber: log.blockNumber,
+// //         userAddress: user,
+// //         amount: stringifyBigInt(args.amount || 0),
+// //         reason: reason, // Stores the full string like "manualActivation:2"
+// //         level: level,  // New field to make filtering easy
+// //         timestamp: toDateFromSeconds(block.timestamp),
+// //       },
+// //     },
+// //     { upsert: true }
+// //   );
+
+// //     logDebug('[SAVED_TOKEN_EVENT]', {
+// //     token: tokenSymbol,
+// //     eventName: parsed.name,
+// //     user,
+// //     txHash: toLower(log.transactionHash)
+// //   });
+// // }
+
+
 
 
 // export async function saveTokenLog(chainId, tokenSymbol, log, parsed, block) {
 //   const args = parsed.args || {};
 //   const user = toLower(args.to || args.from || args.user || '');
-//   const reason = args.reason || '';
+//   const reason = String(args.reason || '');
 
-//   // EXTRACTION LOGIC: Pull level from the reason string (e.g., "manualActivation:2")
-//   let level = 0;
-//   if (reason.includes(':')) {
-//     const parts = reason.split(':');
-//     level = Number(parts[1]) || 0;
+//   function extractLevelFromReason(reasonValue) {
+//     const text = String(reasonValue || '');
+
+//     const colonMatch = text.match(/:(\d+)/);
+//     if (colonMatch) {
+//       const level = Number(colonMatch[1]);
+//       if (Number.isInteger(level) && level >= 1 && level <= 10) return level;
+//     }
+
+//     const levelMatch = text.match(/level\D*(\d+)/i);
+//     if (levelMatch) {
+//       const level = Number(levelMatch[1]);
+//       if (Number.isInteger(level) && level >= 1 && level <= 10) return level;
+//     }
+
+//     return 0;
+//   }
+
+//   async function findLevelFromSameTx() {
+//     const txHash = toLower(log.transactionHash);
+
+//     const registrationEvent = await IndexedRegistrationEvent.findOne({
+//       txHash,
+//       level: { $gte: 1, $lte: 10 },
+//     })
+//       .sort({ logIndex: -1 })
+//       .lean();
+
+//     if (registrationEvent?.level) {
+//       return Number(registrationEvent.level);
+//     }
+
+//     const receipt = await IndexedReceipt.findOne({
+//       txHash,
+//       level: { $gte: 1, $lte: 10 },
+//     })
+//       .sort({ logIndex: -1 })
+//       .lean();
+
+//     if (receipt?.level) {
+//       return Number(receipt.level);
+//     }
+
+//     const orbitEvent = await IndexedOrbitEvent.findOne({
+//       txHash,
+//       level: { $gte: 1, $lte: 10 },
+//     })
+//       .sort({ logIndex: -1 })
+//       .lean();
+
+//     if (orbitEvent?.level) {
+//       return Number(orbitEvent.level);
+//     }
+
+//     return 0;
+//   }
+
+//   let level = extractLevelFromReason(reason);
+
+//   if (!level) {
+//     level = await findLevelFromSameTx();
 //   }
 
 //   await IndexedTokenEvent.updateOne(
@@ -1901,21 +2104,26 @@ export function stopIndexer() {
 //         blockNumber: log.blockNumber,
 //         userAddress: user,
 //         amount: stringifyBigInt(args.amount || 0),
-//         reason: reason, // Stores the full string like "manualActivation:2"
-//         level: level,  // New field to make filtering easy
+//         reason,
+//         level,
 //         timestamp: toDateFromSeconds(block.timestamp),
 //       },
 //     },
 //     { upsert: true }
 //   );
 
-//     logDebug('[SAVED_TOKEN_EVENT]', {
+//   logDebug('[SAVED_TOKEN_EVENT]', {
 //     token: tokenSymbol,
 //     eventName: parsed.name,
 //     user,
-//     txHash: toLower(log.transactionHash)
+//     reason,
+//     level,
+//     txHash: toLower(log.transactionHash),
 //   });
 // }
+
+
+
 
 // async function processLogsForContract({
 //   contract,
