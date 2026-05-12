@@ -69,12 +69,45 @@ function getStableWsProvider() {
     throw new Error('WS_RPC_URLS is not configured');
   }
 
+  // stableWsProvider = new WebSocketProvider(wsUrls[0], {
+  //   chainId: Number(env.CHAIN_ID),
+  //   name: `chain-${env.CHAIN_ID}`,
+  // });
+
+  // console.log('[REALTIME_STABLE_WS_CREATED]', { url: wsUrls[0] });
+
+  // return stableWsProvider;
+
+
   stableWsProvider = new WebSocketProvider(wsUrls[0], {
     chainId: Number(env.CHAIN_ID),
     name: `chain-${env.CHAIN_ID}`,
   });
 
-  console.log('[REALTIME_STABLE_WS_CREATED]', { url: wsUrls[0] });
+  const socket =
+    stableWsProvider.websocket ||
+    stableWsProvider._websocket;
+
+  socket?.addEventListener?.('open', () => {
+    console.log('[REALTIME_EVENT_WS_OPEN]');
+  });
+
+  socket?.addEventListener?.('close', (event) => {
+    console.error('[REALTIME_EVENT_WS_CLOSED]', {
+      code: event?.code,
+      reason: event?.reason,
+    });
+  });
+
+  socket?.addEventListener?.('error', (error) => {
+    console.error('[REALTIME_EVENT_WS_ERROR]', {
+      message: error?.message || String(error),
+    });
+  });
+
+  console.log('[REALTIME_STABLE_WS_CREATED]', {
+    url: wsUrls[0],
+  });
 
   return stableWsProvider;
 }
@@ -261,10 +294,6 @@ export async function startRealtimeEventIndexer() {
     attachListener(contract, 'OrbitDependencyUpdated', label);
   }
 
-  console.log('[REALTIME_EVENT_INDEXER_STARTED]', {
-    listeners: activeListeners.length,
-  });
-
 
    for (const label of ['fgtToken', 'fgtrToken']) {
     const contract = wsContracts[label];
@@ -274,6 +303,11 @@ export async function startRealtimeEventIndexer() {
       attachListener(contract, 'UtilityLocked', label);
     }
   }
+
+
+  console.log('[REALTIME_EVENT_INDEXER_STARTED]', {
+      listeners: activeListeners.length,
+    });
 
   return {
     ok: true,

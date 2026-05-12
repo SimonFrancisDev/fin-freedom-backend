@@ -17,7 +17,7 @@ const syncStateSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['idle', 'running', 'error'],
+      enum: ['idle', 'running', 'error', 'cooldown', 'gap'],
       default: 'idle',
       index: true,
     },

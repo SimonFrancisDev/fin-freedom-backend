@@ -715,6 +715,14 @@ async function processLogsForContract({
     })
   );
 
+    logDebug('[GET_LOGS_RESULT]', {
+    contractKey,
+    contractAddress,
+    fromBlock,
+    toBlock,
+    count: logs.length,
+  });
+
   for (const log of logs) {
     let parsed;
     try {
@@ -767,6 +775,12 @@ async function processLogsForContract({
     }
 
     if (contractKey === 'levelManager') {
+
+      if (parsed.name === 'FounderRepActivated') {
+        await saveRegistrationLog(chainId, contractAddress, log, parsed, block);
+        continue;
+      }
+      
       if (parsed.name === 'DetailedPayoutReceiptRecorded') {
         await saveReceiptLog(chainId, log, parsed, block);
         continue;

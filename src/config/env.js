@@ -78,7 +78,14 @@ const env = {
     0,
     optionalInteger('START_BLOCK_P39_ORBIT', 0)
   ),
-
+  START_BLOCK_FGT_TOKEN: Math.max(
+  0,
+  optionalInteger('START_BLOCK_FGT_TOKEN', 0)
+  ),
+  START_BLOCK_FGTR_TOKEN: Math.max(
+    0,
+    optionalInteger('START_BLOCK_FGTR_TOKEN', 0)
+  ),
   SYNC_CONFIRMATIONS: clamp(optionalInteger('SYNC_CONFIRMATIONS', 2), 0, 100, 2),
   SYNC_BLOCK_CHUNK_SIZE: clamp(
     optionalInteger('SYNC_BLOCK_CHUNK_SIZE', 5),
