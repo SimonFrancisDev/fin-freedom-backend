@@ -1,15 +1,12 @@
-import express from 'express';
-import { getOrCreateReferralCode, resolveReferralCode } from '../controllers/referralController.js';
+import express from 'express'
 import {
-  lockReferral,
-  getReferralLock,
-} from '../controllers/referralAttributionController.js'
+  getOrCreateReferralCode,
+  resolveReferralCode,
+} from '../controllers/referralController.js'
 
-const router = express.Router();
+const router = express.Router()
 
-router.get('/code/:address', getOrCreateReferralCode);
-router.get('/resolve/:shortCode', resolveReferralCode);
-router.post('/lock', lockReferral)
-router.get('/lock', getReferralLock)
+router.get('/code/:address', getOrCreateReferralCode)
+router.get('/resolve/:shortCode', resolveReferralCode)
 
-export default router;
+export default router

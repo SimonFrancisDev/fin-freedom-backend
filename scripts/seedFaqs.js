@@ -98,13 +98,6 @@ const faqs = [
     order: 1,
     isActive: true
   },
-  {
-    question: 'What is the ID1 wallet?',
-    answer: 'The ID1 wallet is a special wallet that has all levels auto-activated. It serves as the root referrer for users who register without a referrer.',
-    category: 'Account & Security',
-    order: 2,
-    isActive: true
-  }
 ];
 
 async function seedFaqs() {
