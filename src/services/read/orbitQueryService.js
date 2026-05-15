@@ -1599,7 +1599,8 @@ function formatNumber2(value) {
 function sumReceiptMoney(receipts = []) {
   return receipts.reduce(
     (acc, receipt) => {
-      acc.totalGeneratedRaw += toBigIntSafe(receipt.grossAmount);
+      // acc.totalGeneratedRaw += toBigIntSafe(receipt.grossAmount);
+      acc.totalGeneratedRaw += toBigIntSafe(receipt.grossAmount) + toBigIntSafe(receipt.escrowLocked);
       acc.totalLiquidRaw += toBigIntSafe(receipt.liquidPaid);
       acc.receiptEscrowLockedRaw += toBigIntSafe(receipt.escrowLocked);
       acc.receiptCount += 1;
@@ -1634,7 +1635,8 @@ function groupReceiptMoneyByLevel(receipts = [], escrowByLevel = new Map()) {
 
     const item = grouped.get(level);
 
-    item.generatedRaw += toBigIntSafe(receipt.grossAmount);
+    // item.generatedRaw += toBigIntSafe(receipt.grossAmount);
+    item.generatedRaw +=toBigIntSafe(receipt.grossAmount) + toBigIntSafe(receipt.escrowLocked);
     item.liquidRaw += toBigIntSafe(receipt.liquidPaid);
     item.receiptEscrowLockedRaw += toBigIntSafe(receipt.escrowLocked);
     item.receiptCount += 1;
@@ -1930,134 +1932,7 @@ async function getCurrentEscrowLockSummary(address, escrowMetrics = null) {
   };
 }
 
-// export const fetchUserGlobalSummary = safeApiResponse(async function(address) {
-//   const normalizedAddress = normalizeAddress(address);
 
-//   const [receipts, tokenEvents, escrowMetrics] = await Promise.all([
-//     IndexedReceipt.find({ receiver: normalizedAddress }).lean(),
-//     IndexedTokenEvent.find({ userAddress: normalizedAddress })
-//       .sort({ timestamp: -1 })
-//       .lean(),
-//     fetchUserEscrowMetrics(normalizedAddress),
-//   ]);
-
-//   const lockSummary = await getCurrentEscrowLockSummary(
-//     normalizedAddress,
-//     escrowMetrics
-//   );
-
-//   const receiptTotals = sumReceiptMoney(receipts);
-//   const byLevelFinancials = groupReceiptMoneyByLevel(
-//     receipts,
-//     escrowMetrics.byFromLevel
-//   );
-
-//   const earningsSummary = summarizeReceiptsForViewer(receipts, normalizedAddress);
-
-//   const tokenTotals = tokenEvents.reduce((acc, event) => {
-//     const amt = BigInt(event.amount || '0');
-//     const symbol = event.tokenSymbol;
-
-//     if (!acc[symbol]) acc[symbol] = { minted: 0n, burned: 0n, locked: 0n };
-
-//     if (event.eventName === 'UtilityMinted') acc[symbol].minted += amt;
-//     if (event.eventName === 'UtilityBurned') acc[symbol].burned += amt;
-//     if (event.eventName === 'UtilityLocked') acc[symbol].locked += amt;
-
-//     return acc;
-//   }, {});
-
-//   const tokens = {};
-//   for (const sym in tokenTotals) {
-//     tokens[sym] = {
-//       total: formatUsdt(tokenTotals[sym].minted),
-//       burned: formatUsdt(tokenTotals[sym].burned),
-//       locked: formatUsdt(tokenTotals[sym].locked),
-//       available: formatUsdt(
-//         tokenTotals[sym].minted -
-//           tokenTotals[sym].burned -
-//           tokenTotals[sym].locked
-//       ),
-//     };
-//   }
-
-//   return {
-//     address: normalizedAddress,
-
-//     earnings: {
-//       ...earningsSummary.viewerBreakdown,
-
-//       totalGenerated: formatUsdt(receiptTotals.totalGeneratedRaw),
-//       totalLiquid: formatUsdt(receiptTotals.totalLiquidRaw),
-
-//       // Correct meanings.
-//       escrowLockedLifetime: formatUsdt(
-//         maxBigInt(
-//           escrowMetrics.lockedLifetimeRaw,
-//           receiptTotals.receiptEscrowLockedRaw
-//         )
-//       ),
-//       autoUpgradeUsed: formatUsdt(escrowMetrics.usedForUpgradeRaw),
-//       escrowReleasedToUser: formatUsdt(escrowMetrics.releasedToUserRaw),
-
-//       // Backward-compatible aliases.
-//       totalEscrowUsed: formatUsdt(escrowMetrics.usedForUpgradeRaw),
-//       totalEscrow: formatUsdt(
-//         maxBigInt(
-//           escrowMetrics.lockedLifetimeRaw,
-//           receiptTotals.receiptEscrowLockedRaw
-//         )
-//       ),
-
-//       receiptEscrowLocked: formatUsdt(receiptTotals.receiptEscrowLockedRaw),
-//       receiptCount: receiptTotals.receiptCount,
-
-//       currentEscrowLocked: lockSummary.currentEscrowLocked,
-//       remainingToNextUpgrade: lockSummary.remainingToNextUpgrade,
-//       highestLevel: lockSummary.highestLevel,
-//       highestActiveLock: lockSummary.highestActiveLock,
-//       currentLocksByLevel: lockSummary.byLevel,
-
-//       byLevel: byLevelFinancials.map((item) => {
-//         const lock = lockSummary.byLevel.find((entry) => entry.level === item.level);
-
-//         return {
-//           ...item,
-//           currentLocked: lock?.currentLocked || item.currentLocked || '0.00',
-//           upgradeRequired:
-//             lock?.upgradeRequired ||
-//             formatNumber2(LEVEL_CONFIG[item.level]?.upgradeReq || 0),
-//           remainingToNextUpgrade: lock?.remainingToNextUpgrade || '0.00',
-//           autoUpgradeCompleted: Boolean(lock?.autoUpgradeCompleted),
-//           nextLevelActivated: Boolean(lock?.nextLevelActivated),
-//           shouldShowAutoUpgrade: Boolean(lock?.shouldShowAutoUpgrade),
-//         };
-//       }),
-//     },
-
-//     tokens,
-
-//     history: tokenEvents.map((e) => ({
-//       kind:
-//         e.eventName === 'UtilityMinted'
-//           ? e.tokenSymbol === 'FGT'
-//             ? 'FGT_MINT'
-//             : 'FGTR_MINT'
-//           : e.eventName === 'UtilityBurned'
-//             ? e.tokenSymbol === 'FGT'
-//               ? 'FGT_BURN'
-//               : 'FGTR_BURN'
-//             : 'FGT_LOCK',
-//       token: e.tokenSymbol,
-//       amount: e.amount,
-//       amountFormatted: formatUsdt(e.amount),
-//       reason: String(e.reason || '').split(':')[0],
-//       level: e.level,
-//       txHash: e.txHash,
-//       timestamp: Math.floor(new Date(e.timestamp).getTime() / 1000),
-//     })),
-//   };
-// }, {});
 
 
 export const fetchUserGlobalSummary = safeApiResponse(async function(address) {
