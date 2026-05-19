@@ -184,6 +184,29 @@ function nextRetryDate(attemptCount) {
   return new Date(Date.now() + delay);
 }
 
+function getTelegramBotUsername() {
+  return String(env.TELEGRAM_BOT_USERNAME || '').replace(/^@/, '').trim();
+}
+
+function buildBotDeepLink(code) {
+  const username = getTelegramBotUsername();
+  return username ? `https://t.me/${username}?start=${encodeURIComponent(code)}` : '';
+}
+
+function parseTelegramRetryAfter(errorText) {
+  const match = String(errorText || '').match(/"retry_after"\s*:\s*(\d+)/i);
+  return match ? Math.max(1, Number(match[1])) : 0;
+}
+
+function extractTelegramCode(update = {}) {
+  const text = String(update?.message?.text || '').trim();
+  if (!text) return '';
+  const startMatch = text.match(/^\/start(?:@\w+)?\s+(\d{6})$/i);
+  if (startMatch) return startMatch[1];
+  const codeMatch = text.match(/\b(\d{6})\b/);
+  return codeMatch ? codeMatch[1] : '';
+}
+
 export async function startTelegramLink({ walletAddress, language = 'en' }) {
   const normalized = String(walletAddress || '').toLowerCase().trim();
   if (!normalized) {
@@ -210,9 +233,41 @@ export async function startTelegramLink({ walletAddress, language = 'en' }) {
   return {
     ok: true,
     configured: isTelegramReady(),
+    botUsername: getTelegramBotUsername(),
+    botDeepLink: buildBotDeepLink(code),
     verificationCode: code,
     expiresInSeconds: 600,
   };
+}
+
+export async function handleTelegramWebhook(update = {}) {
+  const code = extractTelegramCode(update);
+  const chatId = update?.message?.chat?.id;
+  const from = update?.message?.from || {};
+
+  if (!code || !chatId) {
+    return { ok: true, ignored: true };
+  }
+
+  const subscription = await TelegramSubscription.findOne({
+    verificationCodeHash: hashCode(code),
+    status: 'pending',
+    verificationExpiresAt: { $gt: new Date() },
+  });
+
+  if (!subscription) {
+    return { ok: true, linked: false, reason: 'code_not_found_or_expired' };
+  }
+
+  subscription.chatId = String(chatId);
+  subscription.telegramUserId = String(from.id || '').trim();
+  subscription.username = String(from.username || '').trim();
+  subscription.status = 'active';
+  subscription.verificationCodeHash = '';
+  subscription.verificationExpiresAt = null;
+  await subscription.save();
+
+  return { ok: true, linked: true };
 }
 
 export async function verifyTelegramLink({ walletAddress, code, chatId, telegramUserId = '', username = '', language = 'en' }) {
@@ -361,7 +416,7 @@ export async function sendTelegramAttempt(attempt) {
 
   const text = notification
     ? renderTemplate(notification.notificationType, notification.i18nParams || {}, subscription?.language || 'en')
-    : (attempt.lastError || 'Admin alert.');
+    : (attempt.message || attempt.lastError || 'Admin alert.');
 
   try {
     const response = await fetch(`${TELEGRAM_API_BASE}/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
@@ -393,14 +448,18 @@ export async function sendTelegramAttempt(attempt) {
 
     return attempt;
   } catch (error) {
+    const errorText = error?.message || String(error);
+    const retryAfterSeconds = parseTelegramRetryAfter(errorText);
     attempt.attemptCount += 1;
-    attempt.lastError = error?.message || String(error);
+    attempt.lastError = errorText;
     if (attempt.attemptCount >= env.NOTIFICATION_DELIVERY_RETRY_LIMIT) {
       attempt.status = 'failed';
       attempt.nextRetryAt = null;
     } else {
       attempt.status = 'queued';
-      attempt.nextRetryAt = nextRetryDate(attempt.attemptCount + 1);
+      attempt.nextRetryAt = retryAfterSeconds
+        ? new Date(Date.now() + (retryAfterSeconds + 2) * 1000)
+        : nextRetryDate(attempt.attemptCount + 1);
     }
     await attempt.save();
     return attempt;
@@ -449,7 +508,8 @@ export async function reportAdminTelegramAlert(type, payload = {}) {
     channel: 'telegram',
     status: isTelegramReady() ? 'queued' : 'skipped',
     attemptCount: 0,
-    lastError: isTelegramReady() ? message : 'Telegram is not configured',
+    message,
+    lastError: isTelegramReady() ? '' : 'Telegram is not configured',
     nextRetryAt: isTelegramReady() ? nextRetryDate(1) : null,
     walletAddress: '',
     notificationId: null,

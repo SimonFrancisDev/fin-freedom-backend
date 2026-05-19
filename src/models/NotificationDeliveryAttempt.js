@@ -12,6 +12,7 @@ const notificationDeliveryAttemptSchema = new mongoose.Schema(
       index: true,
     },
     attemptCount: { type: Number, default: 0, min: 0 },
+    message: { type: String, default: '' },
     lastError: { type: String, default: '' },
     nextRetryAt: { type: Date, default: null, index: true },
     sentAt: { type: Date, default: null },

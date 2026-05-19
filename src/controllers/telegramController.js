@@ -1,6 +1,7 @@
 import env from '../config/env.js';
 import {
   getTelegramStatus,
+  handleTelegramWebhook,
   startTelegramLink,
   unsubscribeTelegram,
   updateTelegramPreferences,
@@ -62,5 +63,5 @@ export async function telegramWebhookController(req, res) {
   if (!env.TELEGRAM_WEBHOOK_SECRET || providedSecret !== env.TELEGRAM_WEBHOOK_SECRET) {
     return res.status(403).json({ ok: false, message: 'Telegram webhook denied' });
   }
-  return res.status(202).json({ ok: true, received: true });
+  return res.status(202).json(await handleTelegramWebhook(req.body || {}));
 }
