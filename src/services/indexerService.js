@@ -5,6 +5,15 @@ import IndexedRegistrationEvent from '../models/IndexedRegistrationEvent.js';
 import IndexedTokenEvent from '../models/IndexedTokenEvent.js';
 import IndexedEscrowEvent from '../models/IndexedEscrowEvent.js';
 import IndexedActivationSummary from '../models/IndexedActivationSummary.js';
+import IndexedFinancialEvent from '../models/IndexedFinancialEvent.js';
+import IndexerGap from '../models/IndexerGap.js';
+import {
+  createAdminIndexerWarning,
+  notifyFromIndexedEscrowEvent,
+  notifyFromIndexedFinancialEvent,
+  notifyFromIndexedReceipt,
+  notifyFromIndexedTokenEvent,
+} from './notifications/notificationService.js';
 import {
   safeRpcCall,
   getProviderHealthSnapshot,
@@ -97,8 +106,31 @@ function stringifyBigInt(value) {
   return value.toString();
 }
 
+function codeToString(value) {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'string') {
+    if (!value.startsWith('0x')) return value;
+    try {
+      return Buffer.from(value.slice(2), 'hex').toString('utf8').replace(/\0+$/g, '');
+    } catch {
+      return value;
+    }
+  }
+  return String(value);
+}
+
+function rawArgs(args = {}) {
+  return Object.fromEntries(
+    Object.entries(args).map(([k, v]) => [
+      k,
+      typeof v === 'bigint' ? v.toString() : v,
+    ])
+  );
+}
+
 const blockCache = new Map();
 const targetBackoffUntil = new Map();
+const targetLeaseRenewedAt = new Map();
 
 const LIVE_TAIL_ENABLED = true;
 const LIVE_TAIL_WINDOW_BLOCKS =20;
@@ -110,7 +142,8 @@ const LIVE_TAIL_TARGET_KEYS = new Set([
   'p12Orbit',
   'p39Orbit',
   'fgtToken',
-  'fgtrToken'
+  'fgtrToken',
+  'freedomTokenController'
 ]);
 const LIVE_TAIL_EVERY_N_PASSES = 5;
 const LIVE_TAIL_MAX_CHUNK_SIZE = 3;
@@ -128,6 +161,8 @@ let pendingImmediatePass = false;
 let immediatePassTimer = null;
 let unsubscribeNewBlock = null;
 let latestObservedBlock = 0;
+let indexerOwnerId = null;
+let indexerProcessRole = 'server';
 
 function getTargetBackoffKey(targetKey) {
   return `indexer-backoff:${targetKey}`;
@@ -205,8 +240,294 @@ async function getOrCreateSyncState(key, fallbackStartBlock) {
   return state;
 }
 
+function getUpdateMatchedCount(result) {
+  return Number(result?.matchedCount ?? result?.n ?? 0);
+}
+
+function buildGapKey(targetKey, fromBlock, toBlock) {
+  return `${targetKey}:${Number(fromBlock)}:${Number(toBlock)}`;
+}
+
+function normalizeBlockRange(fromBlock, toBlock) {
+  const from = Number(fromBlock);
+  const to = Number(toBlock);
+
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < from) {
+    throw new Error(`[INVALID_BLOCK_RANGE] from=${fromBlock} to=${toBlock}`);
+  }
+
+  return { fromBlock: from, toBlock: to };
+}
+
+function createIndexerOwnerId(processRole) {
+  const random = Math.random().toString(36).slice(2);
+  return `${processRole}:${process.pid}:${Date.now()}:${random}`;
+}
+
+function ensureIndexerOwner(processRole = 'server') {
+  if (!indexerOwnerId) {
+    indexerProcessRole = processRole || 'server';
+    indexerOwnerId = createIndexerOwnerId(indexerProcessRole);
+    console.log('[INDEXER_OWNER]', {
+      ownerId: indexerOwnerId,
+      processRole: indexerProcessRole,
+    });
+  }
+
+  return indexerOwnerId;
+}
+
+function buildInsertedSyncState(targetKey, fallbackStartBlock) {
+  return {
+    key: targetKey,
+    lastProcessedBlock: fallbackStartBlock > 0 ? fallbackStartBlock - 1 : 0,
+    status: 'idle',
+    meta: {},
+    lastSyncedAt: null,
+    errorMessage: '',
+  };
+}
+
+async function ensureSyncStateDocument(target) {
+  try {
+    await SyncState.updateOne(
+      { key: target.key },
+      { $setOnInsert: buildInsertedSyncState(target.key, target.startBlock) },
+      { upsert: true }
+    );
+  } catch (error) {
+    if (Number(error?.code) !== 11000) {
+      throw error;
+    }
+  }
+}
+
+function buildLeaseData(targetKey) {
+  const { leaseTtlMs } = getSyncConfig();
+  const now = new Date();
+
+  return {
+    ownerId: ensureIndexerOwner(indexerProcessRole),
+    leaseUntil: new Date(now.getTime() + leaseTtlMs),
+    heartbeatAt: now,
+    processRole: indexerProcessRole,
+    targetKey,
+  };
+}
+
+async function acquireTargetLease(target) {
+  await ensureSyncStateDocument(target);
+
+  const now = new Date();
+  const lease = buildLeaseData(target.key);
+  const state = await SyncState.findOneAndUpdate(
+    {
+      key: target.key,
+      $or: [
+        { 'meta.lease.ownerId': { $exists: false } },
+        { 'meta.lease.ownerId': lease.ownerId },
+        { 'meta.lease.leaseUntil': { $exists: false } },
+        { 'meta.lease.leaseUntil': { $lte: now } },
+      ],
+    },
+    {
+      $set: {
+        'meta.lease': lease,
+      },
+    },
+    {
+      new: true,
+    }
+  );
+
+  if (!state) {
+    logDebug('[INDEXER_LEASE_HELD]', {
+      target: target.key,
+      ownerId: lease.ownerId,
+      processRole: indexerProcessRole,
+    });
+    return null;
+  }
+
+  targetLeaseRenewedAt.set(target.key, Date.now());
+  return state;
+}
+
+async function renewTargetLease(targetKey, { force = false } = {}) {
+  const ownerId = ensureIndexerOwner(indexerProcessRole);
+  const { leaseRenewMs } = getSyncConfig();
+  const lastRenewedAt = Number(targetLeaseRenewedAt.get(targetKey) || 0);
+
+  if (!force && Date.now() - lastRenewedAt < leaseRenewMs) {
+    return true;
+  }
+
+  const lease = buildLeaseData(targetKey);
+  const result = await SyncState.updateOne(
+    {
+      key: targetKey,
+      'meta.lease.ownerId': ownerId,
+    },
+    {
+      $set: {
+        'meta.lease': lease,
+      },
+    }
+  );
+
+  if (getUpdateMatchedCount(result) === 0) {
+    return false;
+  }
+
+  targetLeaseRenewedAt.set(targetKey, Date.now());
+  return true;
+}
+
+async function assertLeaseOwned(targetKey) {
+  const renewed = await renewTargetLease(targetKey, { force: true });
+
+  if (!renewed) {
+    throw new Error(
+      `[INDEXER_LEASE_LOST] ${targetKey} is not owned by ${indexerOwnerId}`
+    );
+  }
+}
+
+async function releaseOwnedLeases(reason = 'shutdown') {
+  if (!indexerOwnerId) return;
+
+  const ownerId = indexerOwnerId;
+  const now = new Date();
+
+  await SyncState.updateMany(
+    { 'meta.lease.ownerId': ownerId },
+    {
+      $set: {
+        'meta.leaseReleasedAt': now,
+        'meta.leaseReleaseReason': reason,
+      },
+      $unset: {
+        'meta.lease.ownerId': '',
+        'meta.lease.leaseUntil': '',
+        'meta.lease.heartbeatAt': '',
+        'meta.lease.processRole': '',
+        'meta.lease.targetKey': '',
+      },
+    }
+  );
+
+  targetLeaseRenewedAt.clear();
+}
+
+async function recordIndexerGap({
+  targetKey,
+  fromBlock,
+  toBlock,
+  reason,
+  error = null,
+}) {
+  const range = normalizeBlockRange(fromBlock, toBlock);
+  const gapKey = buildGapKey(targetKey, range.fromBlock, range.toBlock);
+  const now = new Date();
+  const lastError = buildErrorMessage(error) || String(reason || '');
+
+  await IndexerGap.updateOne(
+    { gapKey },
+    {
+      $setOnInsert: {
+        gapKey,
+        targetKey,
+        fromBlock: range.fromBlock,
+        toBlock: range.toBlock,
+        attempts: 0,
+        firstDetectedAt: now,
+      },
+      $set: {
+        reason: String(reason || ''),
+        status: 'open',
+        resolvedAt: null,
+        lastError,
+        ownerId: indexerOwnerId || '',
+        processRole: indexerProcessRole || '',
+      },
+    },
+    { upsert: true }
+  );
+
+  createAdminIndexerWarning({
+    targetKey,
+    fromBlock: range.fromBlock,
+    toBlock: range.toBlock,
+    reason,
+    error: lastError,
+  }).catch((alertError) => {
+    console.error('[ADMIN_GAP_ALERT_FAILED]', alertError?.message || String(alertError));
+  });
+
+  return gapKey;
+}
+
+async function markGapReplayAttempt(gapKey, status = 'replaying') {
+  const now = new Date();
+
+  await IndexerGap.updateOne(
+    { gapKey },
+    {
+      $inc: { attempts: 1 },
+      $set: {
+        status,
+        lastAttemptAt: now,
+        ownerId: indexerOwnerId || '',
+        processRole: indexerProcessRole || '',
+      },
+    },
+    { upsert: false }
+  );
+}
+
+async function markGapResolved(gapKey) {
+  const now = new Date();
+
+  await IndexerGap.updateOne(
+    { gapKey },
+    {
+      $set: {
+        status: 'resolved',
+        resolvedAt: now,
+        lastError: '',
+        ownerId: indexerOwnerId || '',
+        processRole: indexerProcessRole || '',
+      },
+    }
+  );
+
+  createAdminIndexerWarning({
+    gapKey,
+    status: 'failed',
+    error: buildErrorMessage(error),
+  }).catch((alertError) => {
+    console.error('[ADMIN_GAP_REPLAY_ALERT_FAILED]', alertError?.message || String(alertError));
+  });
+}
+
+async function markGapReplayFailed(gapKey, error) {
+  await IndexerGap.updateOne(
+    { gapKey },
+    {
+      $set: {
+        status: 'failed',
+        resolvedAt: null,
+        lastError: buildErrorMessage(error),
+        ownerId: indexerOwnerId || '',
+        processRole: indexerProcessRole || '',
+      },
+    }
+  );
+}
+
 export async function saveReceiptLog(chainId, log, parsed, block) {
   const args = parsed.args;
+  const isDetailed = parsed.name === 'DetailedPayoutReceiptRecorded';
 
   await IndexedReceipt.updateOne(
     { txHash: toLower(log.transactionHash), logIndex: log.index },
@@ -217,26 +538,44 @@ export async function saveReceiptLog(chainId, log, parsed, block) {
         logIndex: log.index,
         blockNumber: log.blockNumber,
         blockHash: toLower(log.blockHash),
-        receiver: toLower(args.receiver),
-        activationId: stringifyBigInt(args.activationId),
+        receiver: toLower(args.receiver ?? args[0] ?? ''),
+        activationId: stringifyBigInt(isDetailed ? (args.activationId ?? args[1] ?? 0) : 0),
         receiptType: Number(args.receiptType),
         level: Number(args.level),
-        fromUser: toLower(args.fromUser),
-        orbitOwner: toLower(args.orbitOwner),
-        sourcePosition: Number(args.sourcePosition),
-        sourceCycle: Number(args.sourceCycle),
-        mirroredPosition: Number(args.mirroredPosition),
-        mirroredCycle: Number(args.mirroredCycle),
-        routedRole: Number(args.routedRole),
-        grossAmount: stringifyBigInt(args.grossAmount),
-        escrowLocked: stringifyBigInt(args.escrowLocked),
-        liquidPaid: stringifyBigInt(args.liquidPaid),
+        fromUser: toLower(args.fromUser ?? args[3] ?? ''),
+        orbitOwner: toLower(args.orbitOwner ?? args[4] ?? ''),
+        sourcePosition: Number(isDetailed ? (args.sourcePosition ?? args[6] ?? 0) : 0),
+        sourceCycle: Number(isDetailed ? (args.sourceCycle ?? args[7] ?? 0) : 0),
+        mirroredPosition: Number(isDetailed ? (args.mirroredPosition ?? args[8] ?? 0) : 0),
+        mirroredCycle: Number(isDetailed ? (args.mirroredCycle ?? args[9] ?? 0) : 0),
+        routedRole: Number(isDetailed ? (args.routedRole ?? args[10] ?? 0) : 0),
+        grossAmount: stringifyBigInt(args.grossAmount ?? (isDetailed ? args[11] : args[5]) ?? 0),
+        escrowLocked: stringifyBigInt(args.escrowLocked ?? (isDetailed ? args[12] : args[6]) ?? 0),
+        liquidPaid: stringifyBigInt(args.liquidPaid ?? (isDetailed ? args[13] : args[7]) ?? 0),
         timestamp: toDateFromSeconds(block.timestamp),
         rawEventName: parsed.name,
       },
     },
     { upsert: true }
   );
+
+  notifyFromIndexedReceipt({
+    chainId,
+    txHash: toLower(log.transactionHash),
+    logIndex: log.index,
+    blockNumber: log.blockNumber,
+    blockHash: toLower(log.blockHash),
+    receiver: toLower(args.receiver ?? args[0] ?? ''),
+    activationId: stringifyBigInt(isDetailed ? (args.activationId ?? args[1] ?? 0) : 0),
+    receiptType: Number(args.receiptType),
+    level: Number(args.level),
+    grossAmount: stringifyBigInt(args.grossAmount ?? (isDetailed ? args[11] : args[5]) ?? 0),
+    escrowLocked: stringifyBigInt(args.escrowLocked ?? (isDetailed ? args[12] : args[6]) ?? 0),
+    liquidPaid: stringifyBigInt(args.liquidPaid ?? (isDetailed ? args[13] : args[7]) ?? 0),
+    rawEventName: parsed.name,
+  }).catch((error) => {
+    console.error('[NOTIFICATION_RECEIPT_FAILED]', error?.message || String(error));
+  });
 
   logDebug('[SAVED_RECEIPT]', {
     txHash: toLower(log.transactionHash),
@@ -319,13 +658,16 @@ export async function saveEscrowLog(chainId, contractAddress, log, parsed, block
   }
 
   if (!user || !fromLevel || !toLevel) {
-    console.warn('[ESCROW_EVENT_MISSING_CORE_FIELDS]', {
+    const message = '[ESCROW_EVENT_MISSING_CORE_FIELDS]';
+    console.error(message, {
       eventName,
       txHash: log.transactionHash,
       logIndex: log.index,
       args,
     });
-    return;
+    throw new Error(
+      `${message} ${eventName} ${log.transactionHash}:${log.index}`
+    );
   }
 
   await IndexedEscrowEvent.updateOne(
@@ -357,6 +699,25 @@ export async function saveEscrowLog(chainId, contractAddress, log, parsed, block
     },
     { upsert: true }
   );
+
+  notifyFromIndexedEscrowEvent({
+    chainId,
+    txHash: toLower(log.transactionHash),
+    logIndex: log.index,
+    blockNumber: log.blockNumber,
+    blockHash: toLower(log.blockHash),
+    contractAddress: toLower(contractAddress),
+    eventName,
+    user,
+    fromLevel,
+    toLevel,
+    amount,
+    newLockedTotal,
+    currentEscrowLockedGlobal,
+    recipient,
+  }).catch((error) => {
+    console.error('[NOTIFICATION_ESCROW_FAILED]', error?.message || String(error));
+  });
 
   logDebug('[SAVED_ESCROW_EVENT]', {
     eventName,
@@ -418,6 +779,123 @@ export async function saveActivationSummaryLog(chainId, log, parsed, block) {
   });
 }
 
+export async function saveFinancialEventLog(chainId, contractAddress, log, parsed, block) {
+  const args = parsed.args || {};
+  const eventName = parsed.name;
+
+  const doc = {
+    chainId,
+    contractAddress: toLower(contractAddress),
+    eventName,
+    txHash: toLower(log.transactionHash),
+    logIndex: log.index,
+    blockNumber: log.blockNumber,
+    blockHash: toLower(log.blockHash),
+    timestamp: toDateFromSeconds(block.timestamp),
+    raw: rawArgs(args),
+  };
+
+  if (eventName === 'PayoutNotDelivered') {
+    Object.assign(doc, {
+      affectedUser: toLower(args.affectedUser ?? args[0] ?? ''),
+      sourceUser: toLower(args.sourceUser ?? args[1] ?? ''),
+      level: Number(args.level ?? args[2] ?? 0),
+      orbitType: Number(args.orbitType ?? args[3] ?? 0),
+      sourcePosition: Number(args.sourcePosition ?? args[4] ?? 0),
+      sourceCycle: Number(args.sourceCycle ?? args[5] ?? 0),
+      expectedAmount: stringifyBigInt(args.expectedAmount ?? args[6] ?? 0),
+      actualReceiver: toLower(args.actualReceiver ?? args[7] ?? ''),
+      actualAmount: stringifyBigInt(args.actualAmount ?? args[8] ?? 0),
+      receiptType: Number(args.receiptType ?? args[9] ?? 0),
+      routedRole: codeToString(args.routedRole ?? args[10] ?? ''),
+      reasonCode: codeToString(args.reasonCode ?? args[11] ?? ''),
+      actionCode: codeToString(args.actionCode ?? args[12] ?? ''),
+      activationId: stringifyBigInt(args.activationId ?? args[13] ?? 0),
+    });
+  }
+
+  if (eventName === 'RecycleCompletedDetailed') {
+    Object.assign(doc, {
+      activationId: stringifyBigInt(args.activationId ?? args[0] ?? 0),
+      orbitOwner: toLower(args.orbitOwner ?? args[1] ?? ''),
+      level: Number(args.level ?? args[2] ?? 0),
+      sourceUser: toLower(args.sourceUser ?? args[3] ?? ''),
+      sourcePosition: Number(args.sourcePosition ?? args[4] ?? 0),
+      sourceCycle: Number(args.sourceCycle ?? args[5] ?? 0),
+      recycleReceiver: toLower(args.recycleReceiver ?? args[6] ?? ''),
+      recycleGross: stringifyBigInt(args.recycleGross ?? args[7] ?? 0),
+      recycleLiquidPaid: stringifyBigInt(args.recycleLiquidPaid ?? args[8] ?? 0),
+      recycleEscrowLocked: stringifyBigInt(args.recycleEscrowLocked ?? args[9] ?? 0),
+      mirrorPosition: Number(args.mirrorPosition ?? args[10] ?? 0),
+      mirrorCycle: Number(args.mirrorCycle ?? args[11] ?? 0),
+      triggeredOrbitReset: Boolean(args.triggeredOrbitReset ?? args[12] ?? false),
+    });
+  }
+
+  if (eventName === 'AutoUpgradeCompleted') {
+    Object.assign(doc, {
+      activationId: stringifyBigInt(args.activationId ?? args[0] ?? 0),
+      user: toLower(args.user ?? args[1] ?? ''),
+      fromLevel: Number(args.fromLevel ?? args[2] ?? 0),
+      toLevel: Number(args.toLevel ?? args[3] ?? 0),
+      level: Number(args.toLevel ?? args[3] ?? 0),
+      requiredAmount: stringifyBigInt(args.requiredAmount ?? args[4] ?? 0),
+      usedAmount: stringifyBigInt(args.usedAmount ?? args[5] ?? 0),
+      escrowBefore: stringifyBigInt(args.escrowBefore ?? args[6] ?? 0),
+      escrowAfter: stringifyBigInt(args.escrowAfter ?? args[7] ?? 0),
+    });
+  }
+
+  if (eventName === 'FounderDistributionDetailed') {
+    Object.assign(doc, {
+      activationId: stringifyBigInt(args.activationId ?? args[0] ?? 0),
+      sourceUser: toLower(args.sourceUser ?? args[1] ?? ''),
+      level: Number(args.level ?? args[2] ?? 0),
+      founderWallet: toLower(args.founderWallet ?? args[3] ?? ''),
+      founderAmount: stringifyBigInt(args.amount ?? args[4] ?? 0),
+      reasonCode: codeToString(args.reasonCode ?? args[6] ?? ''),
+    });
+  }
+
+  if (eventName === 'SystemChargeDistributedDetailed') {
+    Object.assign(doc, {
+      activationId: stringifyBigInt(args.activationId ?? args[0] ?? 0),
+      user: toLower(args.user ?? args[1] ?? ''),
+      level: Number(args.level ?? args[2] ?? 0),
+      systemChargeTotal: stringifyBigInt(args.systemChargeTotal ?? args[3] ?? 0),
+      nftPoolAmount: stringifyBigInt(args.nftPoolAmount ?? args[4] ?? 0),
+      operationsAmount: stringifyBigInt(args.operationsAmount ?? args[5] ?? 0),
+    });
+  }
+
+  if (eventName === 'TokenRewardEligibility') {
+    Object.assign(doc, {
+      user: toLower(args.user ?? args[0] ?? ''),
+      level: Number(args.level ?? args[1] ?? 0),
+      rewardType: codeToString(args.rewardType ?? args[2] ?? ''),
+      tokenAmount: stringifyBigInt(args.amount ?? args[3] ?? 0),
+      eligible: Boolean(args.eligible ?? args[4] ?? false),
+      reasonCode: codeToString(args.reasonCode ?? args[5] ?? ''),
+    });
+  }
+
+  await IndexedFinancialEvent.updateOne(
+    { txHash: doc.txHash, logIndex: doc.logIndex },
+    { $setOnInsert: doc },
+    { upsert: true }
+  );
+
+  notifyFromIndexedFinancialEvent(doc).catch((error) => {
+    console.error('[NOTIFICATION_FINANCIAL_FAILED]', error?.message || String(error));
+  });
+
+  logDebug('[SAVED_FINANCIAL_EVENT]', {
+    eventName,
+    txHash: doc.txHash,
+    logIndex: doc.logIndex,
+  });
+}
+
 export async function saveOrbitLog(chainId, orbitType, contractAddress, log, parsed, block) {
   const args = parsed.args || {};
   const eventName = parsed.name;
@@ -469,13 +947,16 @@ export async function saveOrbitLog(chainId, orbitType, contractAddress, log, par
       cycleNumber = Number(args.cycleNumber ?? 0);
 
       if (!orbitOwner) {
-        console.warn('[ORBIT_RESET_MISSING_USER]', {
+        const message = '[ORBIT_RESET_MISSING_USER]';
+        console.error(message, {
           txHash: log.transactionHash,
           logIndex: log.index,
           eventName,
           args,
         });
-        return;
+        throw new Error(
+          `${message} ${eventName} ${log.transactionHash}:${log.index}`
+        );
       }
       break;
     }
@@ -545,13 +1026,16 @@ export async function saveOrbitLog(chainId, orbitType, contractAddress, log, par
   }
 
   if (!orbitOwner) {
-    console.warn('[ORBIT_EVENT_MISSING_OWNER]', {
+    const message = '[ORBIT_EVENT_MISSING_OWNER]';
+    console.error(message, {
       eventName,
       txHash: log.transactionHash,
       logIndex: log.index,
       args,
     });
-    return;
+    throw new Error(
+      `${message} ${eventName} ${log.transactionHash}:${log.index}`
+    );
   }
 
   await IndexedOrbitEvent.updateOne(
@@ -688,6 +1172,21 @@ export async function saveTokenLog(chainId, tokenSymbol, log, parsed, block) {
     { upsert: true }
   );
 
+  notifyFromIndexedTokenEvent({
+    chainId,
+    tokenSymbol,
+    eventName: parsed.name,
+    txHash: toLower(log.transactionHash),
+    logIndex: log.index,
+    blockNumber: log.blockNumber,
+    userAddress: user,
+    amount: stringifyBigInt(args.amount || 0),
+    reason,
+    level,
+  }).catch((error) => {
+    console.error('[NOTIFICATION_TOKEN_FAILED]', error?.message || String(error));
+  });
+
   logDebug('[SAVED_TOKEN_EVENT]', {
     token: tokenSymbol,
     eventName: parsed.name,
@@ -723,12 +1222,19 @@ async function processLogsForContract({
     count: logs.length,
   });
 
-  for (const log of logs) {
+  const orderedLogs = [...logs].sort((a, b) => {
+    const blockDelta = Number(a.blockNumber || 0) - Number(b.blockNumber || 0);
+    if (blockDelta !== 0) return blockDelta;
+    return Number(a.index ?? a.logIndex ?? 0) - Number(b.index ?? b.logIndex ?? 0);
+  });
+
+  for (const log of orderedLogs) {
     let parsed;
     try {
       parsed = contract.interface.parseLog(log);
     } catch (error) {
-      console.error('[PARSE_LOG_FAILED]', {
+      const message = '[PARSE_LOG_FAILED]';
+      console.error(message, {
         contractKey,
         contractAddress,
         txHash: log.transactionHash,
@@ -736,10 +1242,16 @@ async function processLogsForContract({
         topic0: log.topics?.[0],
         error: error?.message || String(error),
       });
-      continue;
+      throw new Error(
+        `${message} ${contractKey} ${log.transactionHash}:${log.index} ${error?.message || String(error)}`
+      );
     }
 
-    if (!parsed) continue;
+    if (!parsed) {
+      throw new Error(
+        `[PARSE_LOG_EMPTY] ${contractKey} ${log.transactionHash}:${log.index}`
+      );
+    }
 
     logDebug('[PARSED_LOG]', {
       contractKey,
@@ -767,6 +1279,14 @@ async function processLogsForContract({
     }
 
     if (
+      contractKey === 'freedomTokenController' &&
+      parsed.name === 'TokenRewardEligibility'
+    ) {
+      await saveFinancialEventLog(chainId, contractAddress, log, parsed, block);
+      continue;
+    }
+
+    if (
       contractKey === 'registration' &&
       ['Registered', 'LevelActivated', 'FounderRepActivated'].includes(parsed.name)
     ) {
@@ -788,6 +1308,19 @@ async function processLogsForContract({
 
       if (parsed.name === 'ActivationFinancialSummaryRecorded') {
         await saveActivationSummaryLog(chainId, log, parsed, block);
+        continue;
+      }
+
+      if (
+        [
+          'PayoutNotDelivered',
+          'RecycleCompletedDetailed',
+          'AutoUpgradeCompleted',
+          'FounderDistributionDetailed',
+          'SystemChargeDistributedDetailed',
+        ].includes(parsed.name)
+      ) {
+        await saveFinancialEventLog(chainId, contractAddress, log, parsed, block);
         continue;
       }
     }
@@ -895,18 +1428,64 @@ function buildTargets(contracts, starts, sync) {
       chunkSize: getTargetChunkSize('levelManager', sync.chunkSize),
       priority: 8,
     },
-  ];
+    {
+      key: 'freedomTokenController',
+      contract: contracts.freedomTokenController,
+      address: contracts.freedomTokenController?.target,
+      startBlock: starts.freedomTokenController ?? starts.fgtToken ?? starts.registration,
+      orbitType: null,
+      chunkSize: getTargetChunkSize('levelManager', sync.chunkSize),
+      priority: 9,
+    },
+  ].filter((target) => target.contract && target.address);
 }
 
-async function updateSyncState(targetKey, payload) {
-  await SyncState.updateOne(
-    { key: targetKey },
-    { $set: payload },
-    { upsert: true }
+function buildSyncStateSet(payload) {
+  const set = { ...payload };
+
+  if (payload?.meta && typeof payload.meta === 'object') {
+    delete set.meta;
+
+    Object.entries(payload.meta).forEach(([key, value]) => {
+      set[`meta.${key}`] = value;
+    });
+  }
+
+  return set;
+}
+
+async function updateSyncState(targetKey, payload, options = {}) {
+  const filter = { key: targetKey };
+  const ownerId = options.ownerId || indexerOwnerId;
+  const requireOwner = Boolean(options.requireOwner);
+  const update = { $set: buildSyncStateSet(payload) };
+
+  if (options.unset) {
+    update.$unset = Array.isArray(options.unset)
+      ? Object.fromEntries(options.unset.map((key) => [key, '']))
+      : options.unset;
+  }
+
+  if (requireOwner) {
+    filter['meta.lease.ownerId'] = ownerId;
+  }
+
+  const result = await SyncState.updateOne(
+    filter,
+    update,
+    { upsert: !requireOwner }
   );
+
+  if (requireOwner && getUpdateMatchedCount(result) === 0) {
+    throw new Error(
+      `[INDEXER_LEASE_LOST] ${targetKey} cursor/status update rejected for ${ownerId}`
+    );
+  }
+
+  return result;
 }
 
-async function markTargetIdle(targetKey, safeBlock, lastProcessedBlock) {
+async function markTargetIdle(targetKey, safeBlock, lastProcessedBlock, options = {}) {
   const lagBlocks = Math.max(0, Number(safeBlock) - Number(lastProcessedBlock || 0));
 
   await updateSyncState(targetKey, {
@@ -922,11 +1501,27 @@ async function markTargetIdle(targetKey, safeBlock, lastProcessedBlock) {
       coolingDown: false,
       providerHealth: getProviderHealthSnapshot(),
     },
-  });
+  }, options);
 }
 
 async function processTargetChunk({ chainId, safeBlock, target }) {
-  const state = await getOrCreateSyncState(target.key, target.startBlock);
+  const state = await acquireTargetLease(target);
+
+  if (!state) {
+    return {
+      key: target.key,
+      status: 'leased',
+      processed: false,
+      safeBlock,
+      lastProcessedBlock: 0,
+      lagBlocks: 0,
+    };
+  }
+
+  const ownedUpdate = {
+    requireOwner: true,
+    ownerId: indexerOwnerId,
+  };
 
   let fromBlock = Number(state.lastProcessedBlock || 0) + 1;
   if (fromBlock === 1 && target.startBlock > 0) {
@@ -934,7 +1529,7 @@ async function processTargetChunk({ chainId, safeBlock, target }) {
   }
 
   if (fromBlock > safeBlock) {
-    await markTargetIdle(target.key, safeBlock, state.lastProcessedBlock);
+    await markTargetIdle(target.key, safeBlock, state.lastProcessedBlock, ownedUpdate);
     return {
       key: target.key,
       status: 'idle',
@@ -960,7 +1555,7 @@ async function processTargetChunk({ chainId, safeBlock, target }) {
         coolingDown: true,
         providerHealth: getProviderHealthSnapshot(),
       },
-    });
+    }, ownedUpdate);
 
     return {
       key: target.key,
@@ -978,6 +1573,7 @@ async function processTargetChunk({ chainId, safeBlock, target }) {
 
   while (chunkSize >= 1) {
     const toBlock = Math.min(fromBlock + chunkSize - 1, safeBlock);
+    await assertLeaseOwned(target.key);
 
     await updateSyncState(target.key, {
       status: 'running',
@@ -991,7 +1587,7 @@ async function processTargetChunk({ chainId, safeBlock, target }) {
         coolingDown: false,
         providerHealth: getProviderHealthSnapshot(),
       },
-    });
+    }, ownedUpdate);
 
     try {
       const logCount = await processLogsForContract({
@@ -1005,6 +1601,7 @@ async function processTargetChunk({ chainId, safeBlock, target }) {
       });
 
       const newLagBlocks = Math.max(0, safeBlock - toBlock);
+      await assertLeaseOwned(target.key);
 
       await updateSyncState(target.key, {
         lastProcessedBlock: toBlock,
@@ -1022,6 +1619,9 @@ async function processTargetChunk({ chainId, safeBlock, target }) {
           coolingDown: false,
           providerHealth: getProviderHealthSnapshot(),
         },
+      }, {
+        ...ownedUpdate,
+        unset: ['meta.gapFrom', 'meta.gapTo', 'meta.retryRequired'],
       });
 
       return {
@@ -1049,6 +1649,14 @@ async function processTargetChunk({ chainId, safeBlock, target }) {
       });
 
       // GAP DETECTION
+      await recordIndexerGap({
+        targetKey: target.key,
+        fromBlock,
+        toBlock,
+        reason: buildErrorMessage(error),
+        error,
+      });
+
       await updateSyncState(target.key, {
         status: 'gap',
         errorMessage: buildErrorMessage(error),
@@ -1057,7 +1665,7 @@ async function processTargetChunk({ chainId, safeBlock, target }) {
           gapTo: toBlock,
           retryRequired: true,
         },
-      });
+      }, ownedUpdate);
       setTargetBackoff(target.key, 2000);
 
       if (isBlockRangeLimitError(error) && chunkSize > 1) {
@@ -1075,7 +1683,7 @@ async function processTargetChunk({ chainId, safeBlock, target }) {
             coolingDown: false,
             providerHealth: getProviderHealthSnapshot(),
           },
-        });
+        }, ownedUpdate);
 
         continue;
       }
@@ -1101,7 +1709,7 @@ async function processTargetChunk({ chainId, safeBlock, target }) {
             coolingDown: true,
             providerHealth: getProviderHealthSnapshot(),
           },
-        });
+        }, ownedUpdate);
 
         return {
           key: target.key,
@@ -1125,7 +1733,7 @@ async function processTargetChunk({ chainId, safeBlock, target }) {
           coolingDown: false,
           providerHealth: getProviderHealthSnapshot(),
         },
-      });
+      }, ownedUpdate);
 
       throw error;
     }
@@ -1146,6 +1754,19 @@ function buildLiveTailTargets(allTargets) {
 }
 
 async function processLiveTailTarget({ chainId, latestBlock, target }) {
+  const state = await acquireTargetLease(target);
+
+  if (!state) {
+    return {
+      key: target.key,
+      processed: false,
+      fromBlock: null,
+      toBlock: null,
+      logCount: 0,
+      leased: true,
+    };
+  }
+
   const tailWindowStart = Math.max(
     Number(target.startBlock || 0),
     Math.max(0, latestBlock - LIVE_TAIL_WINDOW_BLOCKS + 1)
@@ -1170,6 +1791,8 @@ async function processLiveTailTarget({ chainId, latestBlock, target }) {
     const currentTo = Math.min(currentFrom + chunkSize - 1, latestBlock);
 
     try {
+      await assertLeaseOwned(target.key);
+
       const logCount = await processLogsForContract({
         contract: target.contract,
         contractKey: target.key,
@@ -1295,6 +1918,130 @@ async function buildIndexerContext() {
     latestBlock,
     safeBlock,
     targets,
+  };
+}
+
+async function getReplayTargetContext(targetKey) {
+  const context = await buildIndexerContext();
+  const target = context.targets.find((item) => item.key === targetKey);
+
+  if (!target) {
+    throw new Error(`[UNKNOWN_INDEXER_TARGET] ${targetKey}`);
+  }
+
+  return {
+    ...context,
+    target,
+  };
+}
+
+export async function replayIndexerRange({
+  targetKey,
+  fromBlock,
+  toBlock,
+  reason = 'manual replay',
+  processRole = 'worker',
+} = {}) {
+  ensureIndexerOwner(processRole);
+
+  const range = normalizeBlockRange(fromBlock, toBlock);
+  const { target, chainId, sync } = await getReplayTargetContext(targetKey);
+  const gapKey = await recordIndexerGap({
+    targetKey,
+    fromBlock: range.fromBlock,
+    toBlock: range.toBlock,
+    reason,
+  });
+
+  await markGapReplayAttempt(gapKey, 'replaying');
+
+  let totalLogs = 0;
+  const replayChunkSize = Math.max(1, Number(sync.replayChunkSize || 100));
+  let currentFrom = range.fromBlock;
+
+  try {
+    while (currentFrom <= range.toBlock) {
+      const currentTo = Math.min(currentFrom + replayChunkSize - 1, range.toBlock);
+
+      const logCount = await processLogsForContract({
+        contract: target.contract,
+        contractKey: target.key,
+        contractAddress: target.address,
+        fromBlock: currentFrom,
+        toBlock: currentTo,
+        chainId,
+        orbitType: target.orbitType,
+      });
+
+      totalLogs += logCount;
+      currentFrom = currentTo + 1;
+    }
+
+    await markGapResolved(gapKey);
+
+    return {
+      ok: true,
+      gapKey,
+      targetKey,
+      fromBlock: range.fromBlock,
+      toBlock: range.toBlock,
+      logCount: totalLogs,
+    };
+  } catch (error) {
+    await markGapReplayFailed(gapKey, error);
+    throw error;
+  }
+}
+
+export async function replayOpenGaps({
+  targetKey = null,
+  limit = 10,
+  processRole = 'worker',
+} = {}) {
+  ensureIndexerOwner(processRole);
+
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 10, 100));
+  const query = {
+    status: { $in: ['open', 'failed'] },
+  };
+
+  if (targetKey) {
+    query.targetKey = targetKey;
+  }
+
+  const gaps = await IndexerGap.find(query)
+    .sort({ firstDetectedAt: 1 })
+    .limit(safeLimit)
+    .lean();
+
+  const results = [];
+
+  for (const gap of gaps) {
+    try {
+      const result = await replayIndexerRange({
+        targetKey: gap.targetKey,
+        fromBlock: gap.fromBlock,
+        toBlock: gap.toBlock,
+        reason: `open gap replay: ${gap.reason || gap.gapKey}`,
+        processRole,
+      });
+      results.push(result);
+    } catch (error) {
+      results.push({
+        ok: false,
+        gapKey: gap.gapKey,
+        targetKey: gap.targetKey,
+        fromBlock: gap.fromBlock,
+        toBlock: gap.toBlock,
+        error: buildErrorMessage(error),
+      });
+    }
+  }
+
+  return {
+    ok: results.every((item) => item.ok),
+    count: results.length,
+    results,
   };
 }
 
@@ -1461,10 +2208,12 @@ function stopRealtimeBlockSubscription() {
   unsubscribeNewBlock = null;
 }
 
-export async function startIndexer() {
+export async function startIndexer(options = {}) {
   const { pollIntervalMs } = getSyncConfig();
 
   if (isRunning) return runnerPromise;
+
+  ensureIndexerOwner(options.processRole || 'server');
 
   isRunning = true;
   stopRequested = false;
@@ -1478,39 +2227,45 @@ export async function startIndexer() {
   startRealtimeBlockSubscription();
 
   runnerPromise = (async () => {
-    await runIndexerPassGuarded('startup');
+    try {
+      await runIndexerPassGuarded('startup');
 
-    while (!stopRequested) {
-      try {
-        await sleep(Math.max(500, pollIntervalMs));
-      } catch {
-        // ignore
-      }
+      while (!stopRequested) {
+        try {
+          await sleep(Math.max(500, pollIntervalMs));
+        } catch {
+          // ignore
+        }
 
-      if (stopRequested) break;
+        if (stopRequested) break;
 
-      try {
-        await runIndexerPassGuarded('scheduled-poll');
-      } catch (error) {
-        console.error('[INDEXER_PASS_ERROR]', buildErrorMessage(error));
+        try {
+          await runIndexerPassGuarded('scheduled-poll');
+        } catch (error) {
+          console.error('[INDEXER_PASS_ERROR]', buildErrorMessage(error));
 
-        if (isRateLimitError(error) || isOutOfCreditsError(error)) {
-          await sleep(20000);
+          if (isRateLimitError(error) || isOutOfCreditsError(error)) {
+            await sleep(20000);
+          }
         }
       }
+    } finally {
+      if (immediatePassTimer) {
+        clearTimeout(immediatePassTimer);
+        immediatePassTimer = null;
+      }
+
+      stopRealtimeBlockSubscription();
+
+      await releaseOwnedLeases('indexer-stopped').catch((error) => {
+        console.error('[INDEXER_LEASE_RELEASE_ERROR]', buildErrorMessage(error));
+      });
+
+      isRunning = false;
+      runnerPromise = null;
+      passInFlightPromise = null;
+      pendingImmediatePass = false;
     }
-
-    if (immediatePassTimer) {
-      clearTimeout(immediatePassTimer);
-      immediatePassTimer = null;
-    }
-
-    stopRealtimeBlockSubscription();
-
-    isRunning = false;
-    runnerPromise = null;
-    passInFlightPromise = null;
-    pendingImmediatePass = false;
   })();
 
   return runnerPromise;
@@ -1525,6 +2280,14 @@ export function stopIndexer() {
   }
 
   stopRealtimeBlockSubscription();
+
+  if (runnerPromise) {
+    return runnerPromise;
+  }
+
+  return releaseOwnedLeases('stop-requested').catch((error) => {
+    console.error('[INDEXER_LEASE_RELEASE_ERROR]', buildErrorMessage(error));
+  });
 }
 
 

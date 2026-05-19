@@ -6,3 +6,8 @@ export { default as OrbitLevelState } from './OrbitLevelState.js';
 export { default as OrbitPosition } from './OrbitPosition.js';
 export { default as ActivationReceipt } from './ActivationReceipt.js';
 export { default as UserReceiptSummary } from './UserReceiptSummary.js';
+export { default as IndexedFinancialEvent } from './IndexedFinancialEvent.js';
+export { default as Notification } from './Notification.js';
+export { default as NotificationPreference } from './NotificationPreference.js';
+export { default as TelegramSubscription } from './TelegramSubscription.js';
+export { default as NotificationDeliveryAttempt } from './NotificationDeliveryAttempt.js';

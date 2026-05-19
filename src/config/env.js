@@ -69,6 +69,14 @@ const env = {
     0,
     optionalInteger('START_BLOCK_LEVEL_MANAGER', 0)
   ),
+  START_BLOCK_ESCROW: Math.max(
+    0,
+    optionalInteger('START_BLOCK_ESCROW', 0)
+  ),
+  START_BLOCK_AUTO_UPGRADE_ESCROW: Math.max(
+    0,
+    optionalInteger('START_BLOCK_AUTO_UPGRADE_ESCROW', 0)
+  ),
   START_BLOCK_P4_ORBIT: Math.max(0, optionalInteger('START_BLOCK_P4_ORBIT', 0)),
   START_BLOCK_P12_ORBIT: Math.max(
     0,
@@ -79,8 +87,8 @@ const env = {
     optionalInteger('START_BLOCK_P39_ORBIT', 0)
   ),
   START_BLOCK_FGT_TOKEN: Math.max(
-  0,
-  optionalInteger('START_BLOCK_FGT_TOKEN', 0)
+    0,
+    optionalInteger('START_BLOCK_FGT_TOKEN', 0)
   ),
   START_BLOCK_FGTR_TOKEN: Math.max(
     0,
@@ -103,6 +111,7 @@ const env = {
   RUN_INDEXER: optionalBoolean('RUN_INDEXER', false),
 
   RPC_MAX_CONCURRENCY: clamp(optionalInteger('RPC_MAX_CONCURRENCY', 4), 1, 20, 4),
+  RPC_MAX_RPS: clamp(optionalInteger('RPC_MAX_RPS', 50), 1, 500, 50),
   RPC_RETRY_ATTEMPTS: clamp(optionalInteger('RPC_RETRY_ATTEMPTS', 5), 0, 10, 5),
   RPC_RETRY_BASE_DELAY_MS: clamp(
     optionalInteger('RPC_RETRY_BASE_DELAY_MS', 1200),
@@ -132,6 +141,25 @@ const env = {
     45000
   ),
 
+  INDEXER_LEASE_TTL_MS: clamp(
+    optionalInteger('INDEXER_LEASE_TTL_MS', 120000),
+    1000,
+    900000,
+    120000
+  ),
+  INDEXER_LEASE_RENEW_MS: clamp(
+    optionalInteger('INDEXER_LEASE_RENEW_MS', 30000),
+    1000,
+    300000,
+    30000
+  ),
+  INDEXER_REPLAY_CHUNK_SIZE: clamp(
+    optionalInteger('INDEXER_REPLAY_CHUNK_SIZE', 100),
+    1,
+    10000,
+    100
+  ),
+
   USDT_ADDRESS: required('USDT_ADDRESS'),
   ESCROW_ADDRESS: required('ESCROW_ADDRESS'),
   REGISTRATION_ADDRESS: required('REGISTRATION_ADDRESS'),
@@ -148,6 +176,39 @@ const env = {
 
   ADMIN_API_KEY: optional('ADMIN_API_KEY'),
   ADMIN_API_HEADER: optional('ADMIN_API_HEADER', 'x-admin-key'),
+  CORS_ALLOWED_ORIGINS: optional('CORS_ALLOWED_ORIGINS'),
+  FRONTEND_ORIGIN: optional('FRONTEND_ORIGIN'),
+
+  NOTIFICATIONS_ENABLED: optionalBoolean('NOTIFICATIONS_ENABLED', true),
+  NOTIFICATION_RETENTION_DAYS: clamp(
+    optionalInteger('NOTIFICATION_RETENTION_DAYS', 90),
+    1,
+    3650,
+    90
+  ),
+  NOTIFICATION_DELIVERY_RETRY_LIMIT: clamp(
+    optionalInteger('NOTIFICATION_DELIVERY_RETRY_LIMIT', 5),
+    0,
+    20,
+    5
+  ),
+  NOTIFICATION_DELIVERY_RETRY_BASE_DELAY_MS: clamp(
+    optionalInteger('NOTIFICATION_DELIVERY_RETRY_BASE_DELAY_MS', 30000),
+    1000,
+    86400000,
+    30000
+  ),
+  NOTIFICATION_DIGEST_ENABLED: optionalBoolean('NOTIFICATION_DIGEST_ENABLED', false),
+
+  TELEGRAM_ENABLED: optionalBoolean('TELEGRAM_ENABLED', false),
+  TELEGRAM_BOT_TOKEN: optional('TELEGRAM_BOT_TOKEN'),
+  TELEGRAM_WEBHOOK_SECRET: optional('TELEGRAM_WEBHOOK_SECRET'),
+  TELEGRAM_WEBHOOK_URL: optional('TELEGRAM_WEBHOOK_URL'),
+  TELEGRAM_ADMIN_CHAT_ID: optional('TELEGRAM_ADMIN_CHAT_ID'),
+  TELEGRAM_USER_NOTIFICATIONS_ENABLED: optionalBoolean('TELEGRAM_USER_NOTIFICATIONS_ENABLED', false),
+  TELEGRAM_ADMIN_REPORTS_ENABLED: optionalBoolean('TELEGRAM_ADMIN_REPORTS_ENABLED', false),
+
+  SENTRY_DSN: optional('SENTRY_DSN'),
 
   API_RATE_LIMIT_WINDOW_MS: clamp(
     optionalInteger('API_RATE_LIMIT_WINDOW_MS', 60000),
@@ -226,6 +287,14 @@ if (wsRpcUrls.length === 0) {
 }
 
 env.WS_RPC_URLS = wsRpcUrls
+
+if (env.TELEGRAM_ENABLED && !env.TELEGRAM_BOT_TOKEN) {
+  throw new Error('Missing TELEGRAM_BOT_TOKEN because TELEGRAM_ENABLED=true');
+}
+
+if (env.TELEGRAM_ENABLED && env.TELEGRAM_USER_NOTIFICATIONS_ENABLED && !env.TELEGRAM_WEBHOOK_SECRET) {
+  console.warn('[ENV] TELEGRAM_WEBHOOK_SECRET is not configured; webhook verification will reject webhook requests.');
+}
 
 
 

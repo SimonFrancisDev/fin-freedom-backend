@@ -9,6 +9,7 @@ import IndexedReceipt from '../../models/IndexedReceipt.js';
 import IndexedRegistrationEvent from '../../models/IndexedRegistrationEvent.js';
 import IndexedEscrowEvent from '../../models/IndexedEscrowEvent.js';
 import IndexedActivationSummary from '../../models/IndexedActivationSummary.js';
+import IndexedFinancialEvent from '../../models/IndexedFinancialEvent.js';
 
 const CACHE_TTL_MS = 15000;
 const cache = new Map();
@@ -60,11 +61,15 @@ async function fetchTreasuryBreakdown(contracts) {
     return {
       nftPool: formatUsdt(nftRaw),
       operations: formatUsdt(opsRaw),
+      nftPoolRaw: String(nftRaw || 0),
+      operationsRaw: String(opsRaw || 0),
     }
   } catch {
     return {
       nftPool: '0.00',
       operations: '0.00',
+      nftPoolRaw: '0',
+      operationsRaw: '0',
     }
   }
 }
@@ -149,17 +154,24 @@ function addRawStrings(items, fieldName) {
 async function fetchGlobalReceiptMetrics() {
   try {
     const receipts = await IndexedReceipt.find({})
-      .select('grossAmount escrowLocked liquidPaid')
+      .select('grossAmount escrowLocked liquidPaid receiptType')
       .lean();
 
     const totalGeneratedRaw = addRawStrings(receipts, 'grossAmount');
     const totalWalletCreditedRaw = addRawStrings(receipts, 'liquidPaid');
     const receiptEscrowLockedRaw = addRawStrings(receipts, 'escrowLocked');
+    const recycleReceipts = receipts.filter(
+      (receipt) => Number(receipt.receiptType || 0) === 4
+    );
+    const recyclePaidLiquidRaw = addRawStrings(recycleReceipts, 'liquidPaid');
+    const recycleEscrowLockedRaw = addRawStrings(recycleReceipts, 'escrowLocked');
 
     return {
       totalGeneratedRaw,
       totalWalletCreditedRaw,
       receiptEscrowLockedRaw,
+      recyclePaidLiquidRaw,
+      recycleEscrowLockedRaw,
       receiptCount: receipts.length,
     };
   } catch {
@@ -167,6 +179,8 @@ async function fetchGlobalReceiptMetrics() {
       totalGeneratedRaw: 0n,
       totalWalletCreditedRaw: 0n,
       receiptEscrowLockedRaw: 0n,
+      recyclePaidLiquidRaw: 0n,
+      recycleEscrowLockedRaw: 0n,
       receiptCount: 0,
     };
   }
@@ -241,15 +255,27 @@ async function fetchGlobalEscrowMetrics(contracts) {
 
 async function fetchGlobalActivationSummaryMetrics() {
   try {
-    const summaries = await IndexedActivationSummary.find({})
+    const [summaries, detailedSystemCharges] = await Promise.all([
+      IndexedActivationSummary.find({})
       .select(
         'systemCharge nftPoolAmount operationsAmount totalEscrowLocked totalRecycleAllocated activationAmount isFounderRepFreeActivation'
       )
-      .lean();
+        .lean(),
+      IndexedFinancialEvent.find({ eventName: 'SystemChargeDistributedDetailed' })
+        .select('systemChargeTotal nftPoolAmount operationsAmount')
+        .lean(),
+    ]);
 
-    const nftPoolReceivedRaw = addRawStrings(summaries, 'nftPoolAmount');
-    const operationsReceivedRaw = addRawStrings(summaries, 'operationsAmount');
-    const systemChargeRaw = addRawStrings(summaries, 'systemCharge');
+    const hasDetailedSystemCharges = detailedSystemCharges.length > 0;
+    const nftPoolReceivedRaw = hasDetailedSystemCharges
+      ? addRawStrings(detailedSystemCharges, 'nftPoolAmount')
+      : addRawStrings(summaries, 'nftPoolAmount');
+    const operationsReceivedRaw = hasDetailedSystemCharges
+      ? addRawStrings(detailedSystemCharges, 'operationsAmount')
+      : addRawStrings(summaries, 'operationsAmount');
+    const systemChargeRaw = hasDetailedSystemCharges
+      ? addRawStrings(detailedSystemCharges, 'systemChargeTotal')
+      : addRawStrings(summaries, 'systemCharge');
     const activationVolumeRaw = addRawStrings(summaries, 'activationAmount');
     const activationEscrowRaw = addRawStrings(summaries, 'totalEscrowLocked');
     const recycleAllocatedRaw = addRawStrings(summaries, 'totalRecycleAllocated');
@@ -272,6 +298,9 @@ async function fetchGlobalActivationSummaryMetrics() {
       paidActivationCount,
       founderRepFreeActivationCount,
       activationSummaryCount: summaries.length,
+      systemChargeTruthSource: hasDetailedSystemCharges
+        ? 'indexed_system_charge_distributed_detailed'
+        : 'indexed_activation_summaries',
     };
   } catch {
     return {
@@ -284,6 +313,7 @@ async function fetchGlobalActivationSummaryMetrics() {
       paidActivationCount: 0,
       founderRepFreeActivationCount: 0,
       activationSummaryCount: 0,
+      systemChargeTruthSource: 'unavailable',
     };
   }
 }
@@ -383,6 +413,16 @@ export async function fetchCommunitySummary() {
     ]);
 
     const visibleCoreBalanceRaw = await fetchVisibleCoreBalance(contracts, financialMetrics);
+    const nftPoolLiveRaw = toBigIntSafe(treasury?.nftPoolRaw || 0);
+    const operationsLiveRaw = toBigIntSafe(treasury?.operationsRaw || 0);
+    const nftPoolDistributedRaw =
+      financialMetrics.nftPoolReceivedRaw > nftPoolLiveRaw
+        ? financialMetrics.nftPoolReceivedRaw - nftPoolLiveRaw
+        : 0n;
+    const operationsUtilizedRaw =
+      financialMetrics.operationsReceivedRaw > operationsLiveRaw
+        ? financialMetrics.operationsReceivedRaw - operationsLiveRaw
+        : 0n;
 
     return {
       public: {
@@ -406,6 +446,52 @@ export async function fetchCommunitySummary() {
         nftPoolReceived: formatUsdt(financialMetrics.nftPoolReceivedRaw),
         operationsReceived: formatUsdt(financialMetrics.operationsReceivedRaw),
         totalProtocolDistributedValue: formatUsdt(financialMetrics.totalProtocolDistributedValueRaw),
+
+        generatedGross: formatUsdt(financialMetrics.totalGeneratedRaw),
+        walletCreditedLiquid: formatUsdt(financialMetrics.totalWalletCreditedRaw),
+        receiptEscrowLocked: formatUsdt(financialMetrics.receiptEscrowLockedRaw),
+        escrowLockedLifetime: formatUsdt(financialMetrics.escrowLockedLifetimeRaw),
+        autoUpgradeUsed: formatUsdt(financialMetrics.usedForUpgradeRaw),
+        escrowReleasedToUser: formatUsdt(financialMetrics.releasedToUsersRaw),
+        systemChargeTotal: formatUsdt(financialMetrics.systemChargeRaw),
+        nftPoolAllocated: formatUsdt(financialMetrics.nftPoolReceivedRaw),
+        operationsAllocated: formatUsdt(financialMetrics.operationsReceivedRaw),
+        nftPoolDistributed: formatUsdt(nftPoolDistributedRaw),
+        operationsUtilized: formatUsdt(operationsUtilizedRaw),
+        nftPoolLiveBalance: treasury?.nftPool || '0.00',
+        operationsLiveBalance: treasury?.operations || '0.00',
+        nftRewardPool: {
+          totalInflow: formatUsdt(financialMetrics.nftPoolReceivedRaw),
+          totalDistributed: formatUsdt(nftPoolDistributedRaw),
+          currentBalance: treasury?.nftPool || '0.00',
+        },
+        devOperations: {
+          totalInflow: formatUsdt(financialMetrics.operationsReceivedRaw),
+          totalUtilized: formatUsdt(operationsUtilizedRaw),
+          currentBalance: treasury?.operations || '0.00',
+        },
+        recycleAllocated: formatUsdt(financialMetrics.recycleAllocatedRaw),
+        recyclePaidLiquid: formatUsdt(financialMetrics.recyclePaidLiquidRaw),
+        recycleEscrowLocked: formatUsdt(financialMetrics.recycleEscrowLockedRaw),
+        financialTruthSource: {
+          generatedGross: 'indexed_receipts',
+          walletCreditedLiquid: 'indexed_receipts',
+          receiptEscrowLocked: 'indexed_receipts',
+          escrowLockedLifetime: financialMetrics.lockedLifetimeRaw > 0n
+            ? 'indexed_or_live_escrow'
+            : 'indexed_receipts_fallback',
+          currentEscrowLocked: 'indexed_or_live_escrow',
+          autoUpgradeUsed: 'indexed_or_live_escrow',
+          escrowReleasedToUser: 'indexed_or_live_escrow',
+          systemChargeTotal: financialMetrics.systemChargeTruthSource,
+          nftPoolAllocated: financialMetrics.systemChargeTruthSource,
+          operationsAllocated: financialMetrics.systemChargeTruthSource,
+          nftPoolLiveBalance: 'live_wallet_balance',
+          operationsLiveBalance: 'live_wallet_balance',
+          recycleAllocated: 'indexed_activation_summaries',
+          recyclePaidLiquid: 'indexed_recycle_receipts',
+          recycleEscrowLocked: 'indexed_recycle_receipts',
+        },
 
         // Useful counts for confidence/status.
         paidActivationCount: financialMetrics.paidActivationCount,

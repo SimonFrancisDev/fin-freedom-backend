@@ -15,6 +15,22 @@ import freedomTokenControllerAbi from './abis/freedomTokenController.abi.json' w
 
 let contractsInstance = null;
 
+const group3LevelManagerEventAbi = [
+  'event PayoutNotDelivered(address indexed affectedUser,address indexed sourceUser,uint8 indexed level,uint8 orbitType,uint8 sourcePosition,uint32 sourceCycle,uint256 expectedAmount,address actualReceiver,uint256 actualAmount,uint8 receiptType,bytes32 routedRole,bytes32 reasonCode,bytes32 actionCode,uint256 activationId)',
+  'event RecycleCompletedDetailed(uint256 indexed activationId,address indexed orbitOwner,uint8 indexed level,address sourceUser,uint8 sourcePosition,uint32 sourceCycle,address recycleReceiver,uint256 recycleGross,uint256 recycleLiquidPaid,uint256 recycleEscrowLocked,uint8 mirrorPosition,uint32 mirrorCycle,bool triggeredOrbitReset)',
+  'event AutoUpgradeCompleted(uint256 indexed activationId,address indexed user,uint8 indexed fromLevel,uint8 toLevel,uint256 requiredAmount,uint256 usedAmount,uint256 escrowBefore,uint256 escrowAfter)',
+  'event FounderDistributionDetailed(uint256 indexed activationId,address indexed sourceUser,uint8 indexed level,address founderWallet,uint256 amount,uint256 ratioBps,bytes32 reasonCode)',
+  'event SystemChargeDistributedDetailed(uint256 indexed activationId,address indexed user,uint8 indexed level,uint256 systemChargeTotal,uint256 nftPoolAmount,uint256 operationsAmount,address nftPool,address operationsWallet)',
+];
+
+const group3TokenControllerEventAbi = [
+  'event TokenRewardEligibility(address indexed user,uint8 indexed level,bytes32 indexed rewardType,uint256 amount,bool eligible,bytes32 reasonCode)',
+];
+
+function mergeAbi(baseAbi, extraFragments) {
+  return [...baseAbi, ...extraFragments];
+}
+
 function buildOptionalContract(address, abi, provider) {
   if (!address) return null;
   return new Contract(address, abi, provider);
@@ -27,7 +43,11 @@ export function getContracts() {
 
   contractsInstance = Object.freeze({
     provider,
-    levelManager: new Contract(addresses.levelManager, levelManagerAbi, provider),
+    levelManager: new Contract(
+      addresses.levelManager,
+      mergeAbi(levelManagerAbi, group3LevelManagerEventAbi),
+      provider
+    ),
     p4Orbit: new Contract(addresses.p4Orbit, p4OrbitAbi, provider),
     p12Orbit: new Contract(addresses.p12Orbit, p12OrbitAbi, provider),
     p39Orbit: new Contract(addresses.p39Orbit, p39OrbitAbi, provider),
@@ -39,7 +59,7 @@ export function getContracts() {
     fgtrToken: buildOptionalContract(addresses.fgtrToken, fgtrTokenAbi, provider),
     freedomTokenController: buildOptionalContract(
       addresses.freedomTokenController,
-      freedomTokenControllerAbi,
+      mergeAbi(freedomTokenControllerAbi, group3TokenControllerEventAbi),
       provider
     ),
   });

@@ -216,6 +216,10 @@ export async function fetchCommunityGlobalStats() {
       totalLiquid: formatRawUsdt(totalLiquidRaw),
       totalGross: formatRawUsdt(totalGrossRaw),
       totalEscrow: formatRawUsdt(totalEscrowRaw),
+      generatedGross: formatRawUsdt(totalGrossRaw),
+      walletCreditedLiquid: formatRawUsdt(totalLiquidRaw),
+      receiptEscrowLocked: formatRawUsdt(totalEscrowRaw),
+      financialTruthSource: 'indexed_receipts',
     };
   });
 }

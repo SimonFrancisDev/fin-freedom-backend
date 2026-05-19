@@ -14,6 +14,9 @@ import communityRoutes from './routes/communityRoutes.js';
 import adminCommunityRoutes from './routes/adminCommunityRoutes.js';
 import supportRoutes from './routes/supportRoutes.js';
 import referralRoutes from './routes/referralRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js';
+import adminNotificationRoutes from './routes/adminNotificationRoutes.js';
+import telegramRoutes from './routes/telegramRoutes.js';
 
 const app = express();
 
@@ -30,7 +33,14 @@ const allowedOrigins = [
   'http://127.0.0.1:3000',
   'https://fin-freedom-backend-3.onrender.com',
   'https://ffn-backend-qx15.onrender.com',
+  env.FRONTEND_ORIGIN,
+  ...(env.CORS_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
 ].filter(Boolean);
+
+const hasConfiguredCorsOrigins = Boolean(env.FRONTEND_ORIGIN || env.CORS_ALLOWED_ORIGINS);
 
 app.use(
   cors({
@@ -41,7 +51,11 @@ app.use(
         return callback(null, true);
       }
 
-      return callback(null, true);
+      if (!hasConfiguredCorsOrigins) {
+        return callback(null, true);
+      }
+
+      return callback(new Error('Origin not allowed by CORS'));
     },
     credentials: false,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -88,6 +102,9 @@ app.use('/api/community', communityRoutes);
 app.use('/api/admin/community', adminCommunityRoutes);
 app.use('/api/support', supportRoutes);
 app.use('/api/referral', referralRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/admin/notifications', adminNotificationRoutes);
+app.use('/api/telegram', telegramRoutes);
 
 app.use((req, res) => {
   res.status(404).json({

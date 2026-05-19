@@ -3,8 +3,15 @@ import app from './app.js';
 import { connectDB } from './config/db.js';
 import { connectBlockchain } from './blockchain/provider.js';
 import { verifyContracts } from './blockchain/contracts.js';
-import { startIndexer } from './services/indexerService.js';
-import { startRealtimeEventIndexer } from './services/realtimeEventIndexer.js';
+import { startIndexer, stopIndexer } from './services/indexerService.js';
+import {
+  startRealtimeEventIndexer,
+  stopRealtimeEventIndexer,
+} from './services/realtimeEventIndexer.js';
+import {
+  startNotificationDeliveryWorker,
+  stopNotificationDeliveryWorker,
+} from './services/notifications/notificationDeliveryWorker.js';
 import env from './config/env.js';
 
 async function startServer() {
@@ -43,15 +50,20 @@ async function startServer() {
         console.error('Realtime event indexer startup error:', error);
       });
 
-      startIndexer().catch((error) => {
+      startIndexer({ processRole: 'server' }).catch((error) => {
         console.error('Indexer startup error:', error);
       });
     } else {
       console.log('Indexer not started in this process.');
     }
 
-    const shutdown = (signal) => {
+    startNotificationDeliveryWorker();
+
+    const shutdown = async (signal) => {
       console.log(`${signal} received. Shutting down gracefully...`);
+      await stopRealtimeEventIndexer();
+      await stopIndexer();
+      stopNotificationDeliveryWorker();
       server.close(() => {
         console.log('HTTP server closed.');
         process.exit(0);

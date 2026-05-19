@@ -4,6 +4,7 @@ import { safeRpcCall } from '../../blockchain/provider.js';
 import IndexedReceipt from '../../models/IndexedReceipt.js';
 import IndexedOrbitEvent from '../../models/IndexedOrbitEvent.js';
 import IndexedTokenEvent from '../../models/IndexedTokenEvent.js';
+import IndexedFinancialEvent from '../../models/IndexedFinancialEvent.js';
 import IndexedEscrowEvent from '../../models/IndexedEscrowEvent.js';
 import OrbitLevelSnapshot from '../../models/OrbitLevelSnapshot.js';
 import OrbitPositionSnapshot from '../../models/OrbitPositionSnapshot.js';
@@ -407,6 +408,8 @@ function buildEmptyReceiptTotals() {
     directOwnerGross: '0',
     routedSpilloverGross: '0',
     recycleGross: '0',
+    recycleLiquid: '0',
+    recycleEscrow: '0',
   };
 }
 
@@ -625,6 +628,14 @@ function summarizeReceiptsForViewer(receipts, viewedAddress) {
         totals.recycleGross,
         receipt.grossAmount
       );
+      totals.recycleLiquid = addBigIntStrings(
+        totals.recycleLiquid,
+        receipt.liquidPaid
+      );
+      totals.recycleEscrow = addBigIntStrings(
+        totals.recycleEscrow,
+        receipt.escrowLocked
+      );
     }
 
     if ((receipt.receiver || '').toLowerCase() !== lowerViewed) continue;
@@ -705,6 +716,20 @@ function summarizeReceiptsForViewer(receipts, viewedAddress) {
       directOwnerGross: formatUsdt(totals.directOwnerGross),
       routedSpilloverGross: formatUsdt(totals.routedSpilloverGross),
       recycleGross: formatUsdt(totals.recycleGross),
+      generatedGross: formatUsdt(totals.gross),
+      walletCreditedLiquid: formatUsdt(totals.liquidPaid),
+      receiptEscrowLocked: formatUsdt(totals.escrowLocked),
+      recycleAllocated: formatUsdt(totals.recycleGross),
+      recyclePaidLiquid: formatUsdt(totals.recycleLiquid),
+      recycleEscrowLocked: formatUsdt(totals.recycleEscrow),
+      financialTruthSource: {
+        generatedGross: 'indexed_receipts',
+        walletCreditedLiquid: 'indexed_receipts',
+        receiptEscrowLocked: 'indexed_receipts',
+        recycleAllocated: 'indexed_recycle_receipts',
+        recyclePaidLiquid: 'indexed_recycle_receipts',
+        recycleEscrowLocked: 'indexed_recycle_receipts',
+      },
     },
     viewerBreakdown: {
       count: viewer.count,
@@ -723,6 +748,20 @@ function summarizeReceiptsForViewer(receipts, viewedAddress) {
       recycleGross: formatUsdt(viewer.recycleGross),
       recycleLiquid: formatUsdt(viewer.recycleLiquid),
       recycleEscrow: formatUsdt(viewer.recycleEscrow),
+      generatedGross: formatUsdt(viewer.totalGross),
+      walletCreditedLiquid: formatUsdt(viewer.totalLiquid),
+      receiptEscrowLocked: formatUsdt(viewer.totalEscrow),
+      recycleAllocated: formatUsdt(viewer.recycleGross),
+      recyclePaidLiquid: formatUsdt(viewer.recycleLiquid),
+      recycleEscrowLocked: formatUsdt(viewer.recycleEscrow),
+      financialTruthSource: {
+        generatedGross: 'indexed_receipts_for_viewer',
+        walletCreditedLiquid: 'indexed_receipts_for_viewer',
+        receiptEscrowLocked: 'indexed_receipts_for_viewer',
+        recycleAllocated: 'indexed_recycle_receipts_for_viewer',
+        recyclePaidLiquid: 'indexed_recycle_receipts_for_viewer',
+        recycleEscrowLocked: 'indexed_recycle_receipts_for_viewer',
+      },
     },
     truthLabel: getTruthLabelFromReceipts(receipts),
   };
@@ -832,27 +871,39 @@ async function fetchHistoricalActivationData(
 }
 
 function shapeIndexedReceipts(receipts) {
-  return receipts.map((receipt) => ({
-    txHash: receipt.txHash,
-    logIndex: receipt.logIndex,
-    blockNumber: receipt.blockNumber,
-    receiver: receipt.receiver,
-    activationId: receipt.activationId,
-    receiptType: receipt.receiptType,
-    level: receipt.level,
-    fromUser: receipt.fromUser,
-    orbitOwner: receipt.orbitOwner,
-    sourcePosition: receipt.sourcePosition,
-    sourceCycle: receipt.sourceCycle,
-    mirroredPosition: receipt.mirroredPosition,
-    mirroredCycle: receipt.mirroredCycle,
-    routedRole: receipt.routedRole,
-    grossAmount: formatUsdt(receipt.grossAmount),
-    escrowLocked: formatUsdt(receipt.escrowLocked),
-    liquidPaid: formatUsdt(receipt.liquidPaid),
-    timestamp: receipt.timestamp,
-    rawEventName: receipt.rawEventName,
-  }));
+  return receipts.map((receipt) => {
+    const isRecycle = Number(receipt.receiptType || 0) === RECEIPT_TYPES.RECYCLE;
+
+    return {
+      txHash: receipt.txHash,
+      logIndex: receipt.logIndex,
+      blockNumber: receipt.blockNumber,
+      receiver: receipt.receiver,
+      activationId: receipt.activationId,
+      receiptType: receipt.receiptType,
+      level: receipt.level,
+      fromUser: receipt.fromUser,
+      orbitOwner: receipt.orbitOwner,
+      sourcePosition: receipt.sourcePosition,
+      sourceCycle: receipt.sourceCycle,
+      mirroredPosition: receipt.mirroredPosition,
+      mirroredCycle: receipt.mirroredCycle,
+      routedRole: receipt.routedRole,
+      grossAmount: formatUsdt(receipt.grossAmount),
+      escrowLocked: formatUsdt(receipt.escrowLocked),
+      liquidPaid: formatUsdt(receipt.liquidPaid),
+      generatedGross: formatUsdt(receipt.grossAmount),
+      walletCreditedLiquid: formatUsdt(receipt.liquidPaid),
+      receiptEscrowLocked: formatUsdt(receipt.escrowLocked),
+      recyclePaidLiquid: isRecycle ? formatUsdt(receipt.liquidPaid) : '0.00',
+      recycleEscrowLocked: isRecycle
+        ? formatUsdt(receipt.escrowLocked)
+        : '0.00',
+      financialTruthSource: 'indexed_receipt_event',
+      timestamp: receipt.timestamp,
+      rawEventName: receipt.rawEventName,
+    };
+  });
 }
 
 // FIX 4: Safest findBestIndexedPositionFilledEvent
@@ -1599,8 +1650,8 @@ function formatNumber2(value) {
 function sumReceiptMoney(receipts = []) {
   return receipts.reduce(
     (acc, receipt) => {
-      // acc.totalGeneratedRaw += toBigIntSafe(receipt.grossAmount);
-      acc.totalGeneratedRaw += toBigIntSafe(receipt.grossAmount) + toBigIntSafe(receipt.escrowLocked);
+      // grossAmount already includes the liquid/escrow split for this receipt.
+      acc.totalGeneratedRaw += toBigIntSafe(receipt.grossAmount);
       acc.totalLiquidRaw += toBigIntSafe(receipt.liquidPaid);
       acc.receiptEscrowLockedRaw += toBigIntSafe(receipt.escrowLocked);
       acc.receiptCount += 1;
@@ -1635,8 +1686,7 @@ function groupReceiptMoneyByLevel(receipts = [], escrowByLevel = new Map()) {
 
     const item = grouped.get(level);
 
-    // item.generatedRaw += toBigIntSafe(receipt.grossAmount);
-    item.generatedRaw +=toBigIntSafe(receipt.grossAmount) + toBigIntSafe(receipt.escrowLocked);
+    item.generatedRaw += toBigIntSafe(receipt.grossAmount);
     item.liquidRaw += toBigIntSafe(receipt.liquidPaid);
     item.receiptEscrowLockedRaw += toBigIntSafe(receipt.escrowLocked);
     item.receiptCount += 1;
@@ -1653,6 +1703,8 @@ function groupReceiptMoneyByLevel(receipts = [], escrowByLevel = new Map()) {
 
         generated: formatUsdt(item.generatedRaw),
         liquid: formatUsdt(item.liquidRaw),
+        generatedGross: formatUsdt(item.generatedRaw),
+        walletCreditedLiquid: formatUsdt(item.liquidRaw),
 
         // Backward compatible alias. This previously represented receipt escrow.
         escrowUsed: formatUsdt(escrow.usedForUpgradeRaw ?? 0n),
@@ -1668,6 +1720,16 @@ function groupReceiptMoneyByLevel(receipts = [], escrowByLevel = new Map()) {
         currentLocked: formatUsdt(escrow.currentLockedRaw ?? 0n),
 
         receiptEscrowLocked: formatUsdt(item.receiptEscrowLockedRaw),
+        currentEscrowLocked: formatUsdt(escrow.currentLockedRaw ?? 0n),
+        financialTruthSource: {
+          generatedGross: 'indexed_receipts',
+          walletCreditedLiquid: 'indexed_receipts',
+          receiptEscrowLocked: 'indexed_receipts',
+          escrowLockedLifetime: 'indexed_escrow_events_with_receipt_fallback',
+          currentEscrowLocked: 'indexed_escrow_events',
+          autoUpgradeUsed: 'indexed_escrow_events',
+          escrowReleasedToUser: 'indexed_escrow_events',
+        },
         receiptCount: item.receiptCount,
       };
     });
@@ -1699,6 +1761,8 @@ function mergeGeneratedAndWalletByLevel(generatedReceipts = [], walletReceipts =
 
         generated: generated?.generated || '0.00',
         liquid: wallet?.liquid || '0.00',
+        generatedGross: generated?.generatedGross || generated?.generated || '0.00',
+        walletCreditedLiquid: wallet?.walletCreditedLiquid || wallet?.liquid || '0.00',
 
         receiptEscrowLocked:
           generated?.receiptEscrowLocked ||
@@ -1724,11 +1788,22 @@ function mergeGeneratedAndWalletByLevel(generatedReceipts = [], walletReceipts =
           generated?.currentLocked ||
           wallet?.currentLocked ||
           '0.00',
+        currentEscrowLocked:
+          generated?.currentEscrowLocked ||
+          wallet?.currentEscrowLocked ||
+          generated?.currentLocked ||
+          wallet?.currentLocked ||
+          '0.00',
 
         escrowUsed:
           generated?.escrowUsed ||
           wallet?.escrowUsed ||
           '0.00',
+
+        financialTruthSource:
+          generated?.financialTruthSource ||
+          wallet?.financialTruthSource ||
+          null,
 
         receiptCount:
           generated?.receiptCount ||
@@ -1938,16 +2013,32 @@ async function getCurrentEscrowLockSummary(address, escrowMetrics = null) {
 export const fetchUserGlobalSummary = safeApiResponse(async function(address) {
   const normalizedAddress = normalizeAddress(address);
 
-  const [walletReceipts, generatedReceipts, tokenEvents, escrowMetrics] = await Promise.all([
+  // const [walletReceipts, generatedReceipts, tokenEvents, escrowMetrics] = await Promise.all([
+  //   IndexedReceipt.find({ receiver: normalizedAddress }).lean(),
+  //   IndexedReceipt.find({ orbitOwner: normalizedAddress }).lean(),
+  //   IndexedTokenEvent.find({ userAddress: normalizedAddress })
+  //     .sort({ timestamp: -1 })
+  //     .lean(),
+  //   fetchUserEscrowMetrics(normalizedAddress),
+  // ]);
+
+  const [walletReceipts, tokenEvents, tokenEligibilityEvents, escrowMetrics] = await Promise.all([
     IndexedReceipt.find({ receiver: normalizedAddress }).lean(),
-    IndexedReceipt.find({ orbitOwner: normalizedAddress }).lean(),
     IndexedTokenEvent.find({ userAddress: normalizedAddress })
       .sort({ timestamp: -1 })
+      .lean(),
+    IndexedFinancialEvent.find({
+      eventName: 'TokenRewardEligibility',
+      user: normalizedAddress,
+    })
+      .sort({ timestamp: -1, blockNumber: -1, logIndex: -1 })
       .lean(),
     fetchUserEscrowMetrics(normalizedAddress),
   ]);
 
-  const receipts = walletReceipts;
+  const generatedReceipts = walletReceipts;
+
+  const receipts = generatedReceipts;
 
   const lockSummary = await getCurrentEscrowLockSummary(
     normalizedAddress,
@@ -1956,6 +2047,10 @@ export const fetchUserGlobalSummary = safeApiResponse(async function(address) {
 
   const walletReceiptTotals = sumReceiptMoney(walletReceipts);
   const generatedReceiptTotals = sumReceiptMoney(generatedReceipts);
+  const recycleReceipts = walletReceipts.filter(
+    (receipt) => Number(receipt.receiptType || 0) === 4
+  );
+  const recycleReceiptTotals = sumReceiptMoney(recycleReceipts);
 
   const byLevelFinancials = mergeGeneratedAndWalletByLevel(
     generatedReceipts,
@@ -2000,6 +2095,8 @@ export const fetchUserGlobalSummary = safeApiResponse(async function(address) {
 
       totalGenerated: formatUsdt(generatedReceiptTotals.totalGeneratedRaw),
       totalLiquid: formatUsdt(walletReceiptTotals.totalLiquidRaw),
+      generatedGross: formatUsdt(generatedReceiptTotals.totalGeneratedRaw),
+      walletCreditedLiquid: formatUsdt(walletReceiptTotals.totalLiquidRaw),
 
       // Correct meanings.
       escrowLockedLifetime: formatUsdt(
@@ -2010,6 +2107,7 @@ export const fetchUserGlobalSummary = safeApiResponse(async function(address) {
       ),
       autoUpgradeUsed: formatUsdt(escrowMetrics.usedForUpgradeRaw),
       escrowReleasedToUser: formatUsdt(escrowMetrics.releasedToUserRaw),
+      currentEscrowLocked: lockSummary.currentEscrowLocked,
 
       // Backward-compatible aliases.
       totalEscrowUsed: formatUsdt(escrowMetrics.usedForUpgradeRaw),
@@ -2021,9 +2119,21 @@ export const fetchUserGlobalSummary = safeApiResponse(async function(address) {
       ),
 
       receiptEscrowLocked: formatUsdt(walletReceiptTotals.receiptEscrowLockedRaw),
+      recyclePaidLiquid: formatUsdt(recycleReceiptTotals.totalLiquidRaw),
+      recycleEscrowLocked: formatUsdt(recycleReceiptTotals.receiptEscrowLockedRaw),
+      financialTruthSource: {
+        generatedGross: 'indexed_receipts',
+        walletCreditedLiquid: 'indexed_receipts',
+        receiptEscrowLocked: 'indexed_receipts',
+        escrowLockedLifetime: 'indexed_escrow_events_with_receipt_fallback',
+        currentEscrowLocked: 'indexed_escrow_events_and_live_status',
+        autoUpgradeUsed: 'indexed_escrow_events',
+        escrowReleasedToUser: 'indexed_escrow_events',
+        recyclePaidLiquid: 'indexed_recycle_receipts',
+        recycleEscrowLocked: 'indexed_recycle_receipts',
+      },
       receiptCount: walletReceiptTotals.receiptCount,
 
-      currentEscrowLocked: lockSummary.currentEscrowLocked,
       remainingToNextUpgrade: lockSummary.remainingToNextUpgrade,
       highestLevel: lockSummary.highestLevel,
       highestActiveLock: lockSummary.highestActiveLock,
@@ -2042,11 +2152,29 @@ export const fetchUserGlobalSummary = safeApiResponse(async function(address) {
           autoUpgradeCompleted: Boolean(lock?.autoUpgradeCompleted),
           nextLevelActivated: Boolean(lock?.nextLevelActivated),
           shouldShowAutoUpgrade: Boolean(lock?.shouldShowAutoUpgrade),
+          currentEscrowLocked: lock?.currentLocked || item.currentEscrowLocked || '0.00',
+          financialTruthSource: {
+            ...(item.financialTruthSource || {}),
+            currentEscrowLocked: 'indexed_escrow_events_and_live_status',
+            remainingToNextUpgrade: 'live_level_manager_status_with_fallback',
+          },
         };
       }),
     },
 
     tokens,
+
+    tokenEligibility: tokenEligibilityEvents.map((event) => ({
+      rewardType: event.rewardType,
+      eligible: event.eligible,
+      reasonCode: event.reasonCode,
+      amount: event.tokenAmount,
+      amountFormatted: formatUsdt(event.tokenAmount),
+      level: event.level,
+      txHash: event.txHash,
+      timestamp: Math.floor(new Date(event.timestamp).getTime() / 1000),
+      financialTruthSource: 'indexed_token_reward_eligibility_event',
+    })),
 
     history: tokenEvents.map((e) => ({
       kind:
