@@ -132,8 +132,8 @@ const blockCache = new Map();
 const targetBackoffUntil = new Map();
 const targetLeaseRenewedAt = new Map();
 
-const LIVE_TAIL_ENABLED = true;
-const LIVE_TAIL_WINDOW_BLOCKS =20;
+const LIVE_TAIL_ENABLED = Boolean(env.INDEXER_LIVE_TAIL_ENABLED);
+const LIVE_TAIL_WINDOW_BLOCKS = Number(env.INDEXER_LIVE_TAIL_WINDOW_BLOCKS || 12);
 const LIVE_TAIL_TARGET_KEYS = new Set([
   'registration',
   'levelManager',
@@ -145,10 +145,10 @@ const LIVE_TAIL_TARGET_KEYS = new Set([
   'fgtrToken',
   'freedomTokenController'
 ]);
-const LIVE_TAIL_EVERY_N_PASSES = 5;
-const LIVE_TAIL_MAX_CHUNK_SIZE = 3;
-const INTER_TARGET_DELAY_MS = 0;
-const IMMEDIATE_PASS_DEBOUNCE_MS = 50;
+const LIVE_TAIL_EVERY_N_PASSES = Number(env.INDEXER_LIVE_TAIL_EVERY_N_PASSES || 120);
+const LIVE_TAIL_MAX_CHUNK_SIZE = Number(env.INDEXER_LIVE_TAIL_MAX_CHUNK_SIZE || 12);
+const INTER_TARGET_DELAY_MS = Number(env.INDEXER_INTER_TARGET_DELAY_MS || 25);
+const IMMEDIATE_PASS_DEBOUNCE_MS = Number(env.INDEXER_IMMEDIATE_PASS_DEBOUNCE_MS || 10000);
 
 let passCounter = 0;
 

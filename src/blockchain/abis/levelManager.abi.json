@@ -172,6 +172,22 @@
     "type": "error"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "startUser",
+        "type": "address"
+      },
+      {
+        "internalType": "uint8",
+        "name": "level",
+        "type": "uint8"
+      }
+    ],
+    "name": "UplineSearchTooDeep",
+    "type": "error"
+  },
+  {
     "inputs": [],
     "name": "UserNotRegistered",
     "type": "error"

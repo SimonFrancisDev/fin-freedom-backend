@@ -68,7 +68,7 @@ export function getSyncConfig() {
   return {
     confirmations: Math.max(0, Number(env.SYNC_CONFIRMATIONS) || 0),
     chunkSize: normalizePositiveNumber(env.SYNC_BLOCK_CHUNK_SIZE, 5, 1),
-    pollIntervalMs: normalizePositiveNumber(env.SYNC_POLL_INTERVAL_MS, 1500, 500),
+    pollIntervalMs: normalizePositiveNumber(env.SYNC_POLL_INTERVAL_MS, 15000, 500),
     leaseTtlMs: normalizePositiveNumber(env.INDEXER_LEASE_TTL_MS, 120000, 1000),
     leaseRenewMs: normalizePositiveNumber(env.INDEXER_LEASE_RENEW_MS, 30000, 1000),
     replayChunkSize: normalizePositiveNumber(env.INDEXER_REPLAY_CHUNK_SIZE, 100, 1),

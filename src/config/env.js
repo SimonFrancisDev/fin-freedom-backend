@@ -102,10 +102,10 @@ const env = {
     5
   ),
   SYNC_POLL_INTERVAL_MS: clamp(
-    optionalInteger('SYNC_POLL_INTERVAL_MS', 1500),
+    optionalInteger('SYNC_POLL_INTERVAL_MS', 15000),
     500,
     300000,
-    1500
+    15000
   ),
 
   RUN_INDEXER: optionalBoolean('RUN_INDEXER', false),
@@ -158,6 +158,37 @@ const env = {
     1,
     10000,
     100
+  ),
+  INDEXER_LIVE_TAIL_ENABLED: optionalBoolean('INDEXER_LIVE_TAIL_ENABLED', true),
+  INDEXER_LIVE_TAIL_WINDOW_BLOCKS: clamp(
+    optionalInteger('INDEXER_LIVE_TAIL_WINDOW_BLOCKS', 12),
+    1,
+    200,
+    12
+  ),
+  INDEXER_LIVE_TAIL_EVERY_N_PASSES: clamp(
+    optionalInteger('INDEXER_LIVE_TAIL_EVERY_N_PASSES', 120),
+    1,
+    10000,
+    120
+  ),
+  INDEXER_LIVE_TAIL_MAX_CHUNK_SIZE: clamp(
+    optionalInteger('INDEXER_LIVE_TAIL_MAX_CHUNK_SIZE', 12),
+    1,
+    100,
+    12
+  ),
+  INDEXER_INTER_TARGET_DELAY_MS: clamp(
+    optionalInteger('INDEXER_INTER_TARGET_DELAY_MS', 25),
+    0,
+    10000,
+    25
+  ),
+  INDEXER_IMMEDIATE_PASS_DEBOUNCE_MS: clamp(
+    optionalInteger('INDEXER_IMMEDIATE_PASS_DEBOUNCE_MS', 10000),
+    50,
+    60000,
+    10000
   ),
 
   USDT_ADDRESS: required('USDT_ADDRESS'),
