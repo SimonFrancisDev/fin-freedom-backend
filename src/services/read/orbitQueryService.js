@@ -6,6 +6,8 @@ import IndexedOrbitEvent from '../../models/IndexedOrbitEvent.js';
 import IndexedTokenEvent from '../../models/IndexedTokenEvent.js';
 import IndexedFinancialEvent from '../../models/IndexedFinancialEvent.js';
 import IndexedEscrowEvent from '../../models/IndexedEscrowEvent.js';
+import IndexedActivationSummary from '../../models/IndexedActivationSummary.js';
+import IndexedRegistrationEvent from '../../models/IndexedRegistrationEvent.js';
 import OrbitLevelSnapshot from '../../models/OrbitLevelSnapshot.js';
 import OrbitPositionSnapshot from '../../models/OrbitPositionSnapshot.js';
 import OrbitCycleSnapshot from '../../models/OrbitCycleSnapshot.js';
@@ -1288,6 +1290,50 @@ export const fetchOrbitLevels = safeApiResponse(async function fetchOrbitLevels(
     cacheKey,
     async () => {
       const contracts = getContracts();
+      const [activationSummaries, registrationEvents] = await Promise.all([
+        IndexedActivationSummary.find({ user: normalizedAddress })
+          .select('level timestamp blockNumber txHash logIndex isAutoUpgrade isFounderRepFreeActivation')
+          .sort({ timestamp: 1, blockNumber: 1, logIndex: 1 })
+          .lean()
+          .catch(() => []),
+        IndexedRegistrationEvent.find({
+          user: normalizedAddress,
+          eventName: { $in: ['Registered', 'LevelActivated', 'FounderRepActivated'] },
+        })
+          .select('eventName level timestamp blockNumber txHash logIndex')
+          .sort({ timestamp: 1, blockNumber: 1, logIndex: 1 })
+          .lean()
+          .catch(() => []),
+      ]);
+
+      const activationByLevel = new Map();
+      for (const summary of activationSummaries) {
+        const level = Number(summary.level || 0);
+        if (level > 0 && !activationByLevel.has(level)) {
+          activationByLevel.set(level, {
+            activatedAt: summary.timestamp,
+            activatedBlockNumber: summary.blockNumber,
+            activationTxHash: summary.txHash,
+            activationSource: summary.isAutoUpgrade
+              ? 'indexed_auto_upgrade_summary'
+              : summary.isFounderRepFreeActivation
+                ? 'indexed_founder_rep_summary'
+                : 'indexed_activation_summary',
+          });
+        }
+      }
+
+      for (const event of registrationEvents) {
+        const level = Number(event.level || (event.eventName === 'Registered' ? 1 : 0));
+        if (level > 0 && !activationByLevel.has(level)) {
+          activationByLevel.set(level, {
+            activatedAt: event.timestamp,
+            activatedBlockNumber: event.blockNumber,
+            activationTxHash: event.txHash,
+            activationSource: `indexed_registration_${event.eventName}`,
+          });
+        }
+      }
 
       const levels = await mapWithConcurrency(
         Array.from({ length: 10 }, (_, index) => index + 1),
@@ -1301,6 +1347,7 @@ export const fetchOrbitLevels = safeApiResponse(async function fetchOrbitLevels(
             level,
             orbitType: levelToOrbitType[level],
             isActive: Boolean(isActive),
+            ...(activationByLevel.get(level) || {}),
           };
         }
       );
