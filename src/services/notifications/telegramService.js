@@ -169,10 +169,52 @@ const templates = {
 function renderTemplate(type, params = {}, language = 'en') {
   const catalog = templates[language] || templates.en;
   const template = catalog[type] || templates.en[type] || 'Notification update: {{message}}';
+  const normalizedParams = normalizeTemplateParams(type, params);
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-    const value = params[key];
+    const value = normalizedParams[key];
     return value === undefined || value === null || value === '' ? '-' : String(value);
   });
+}
+
+function formatRawUnits(value, decimals = 6, fixedDecimals = null) {
+  const raw = String(value ?? '').trim();
+  if (!/^-?\d+$/.test(raw)) return raw;
+  try {
+    const negative = raw.startsWith('-');
+    const digits = raw.replace(/^-/, '').padStart(decimals + 1, '0');
+    const whole = digits.slice(0, -decimals) || '0';
+    const fraction = digits.slice(-decimals).replace(/0+$/, '');
+    const valueText = fraction ? `${whole}.${fraction}` : whole;
+    const signed = negative ? `-${valueText}` : valueText;
+    return fixedDecimals === null ? signed : Number(signed).toFixed(fixedDecimals);
+  } catch {
+    return raw;
+  }
+}
+
+function normalizeTemplateParams(type, params = {}) {
+  const next = { ...params };
+  const usdtTypes = new Set([
+    'payment_received',
+    'payment_skipped',
+    'escrow_locked',
+    'escrow_used',
+    'escrow_released',
+    'auto_upgrade_completed',
+    'recycle_completed',
+  ]);
+
+  if (usdtTypes.has(type)) {
+    for (const key of ['amount', 'generatedAmount', 'escrowLocked', 'expectedAmount', 'actualAmount', 'usedAmount']) {
+      if (next[key] !== undefined) next[key] = formatRawUnits(next[key], 6, 2);
+    }
+  }
+
+  if (type === 'token_reward_minted' || type === 'token_reward_eligibility') {
+    if (next.amount !== undefined) next.amount = formatRawUnits(next.amount, 6, null);
+  }
+
+  return next;
 }
 
 function hashCode(code) {

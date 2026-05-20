@@ -8,6 +8,47 @@ function amountParam(value) {
   return String(value ?? '0');
 }
 
+function formatUnitsParam(value, decimals = 6) {
+  const raw = amountParam(value);
+  try {
+    const negative = raw.startsWith('-');
+    const digits = raw.replace(/^-/, '').replace(/\D/g, '') || '0';
+    const padded = digits.padStart(decimals + 1, '0');
+    const whole = padded.slice(0, -decimals) || '0';
+    const fraction = padded.slice(-decimals).replace(/0+$/, '');
+    const formatted = fraction ? `${whole}.${fraction}` : whole;
+    return negative ? `-${formatted}` : formatted;
+  } catch {
+    return raw;
+  }
+}
+
+function usdtParam(value) {
+  const amount = formatUnitsParam(value, 6);
+  return amount.includes('.') ? Number(amount).toFixed(2) : `${amount}.00`;
+}
+
+function tokenParam(value) {
+  return formatUnitsParam(value, 6);
+}
+
+function humanizeCode(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const labels = {
+    NO_ELIGIBLE_UPLINE: 'No eligible upline was available',
+    RECEIVER_NOT_ACTIVE: 'Receiver was not active for this level',
+    ZERO_RECEIVER: 'No valid receiver was available',
+    ESCROW_LOCKED: 'Amount was locked for auto-upgrade',
+    AUTO_UPGRADE: 'Used for auto-upgrade',
+    RECYCLE: 'Recycle flow completed',
+    ACTIVATION: 'Level activation',
+  };
+  return labels[raw] || raw
+    .replace(/_/g, ' ')
+    .replace(/\w\S*/g, (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+}
+
 function baseEventParams(event) {
   return {
     level: Number(event.level || event.toLevel || 0),
@@ -51,9 +92,9 @@ export function mapIndexedReceiptToNotifications(event) {
       severity: 'success',
       route: 'activity',
       i18nParams: {
-        amount: amountParam(event.liquidPaid || event.grossAmount),
-        generatedAmount: amountParam(event.grossAmount),
-        escrowLocked: amountParam(event.escrowLocked),
+        amount: usdtParam(event.liquidPaid || event.grossAmount),
+        generatedAmount: usdtParam(event.grossAmount),
+        escrowLocked: usdtParam(event.escrowLocked),
       },
     }),
   ].filter(Boolean);
@@ -74,7 +115,7 @@ export function mapIndexedEscrowEventToNotifications(event) {
       severity,
       route: 'orbits',
       i18nParams: {
-        amount: amountParam(event.amount),
+        amount: usdtParam(event.amount),
         fromLevel: Number(event.fromLevel || 0),
         toLevel: Number(event.toLevel || 0),
       },
@@ -91,9 +132,10 @@ export function mapIndexedFinancialEventToNotifications(event) {
         severity: 'warning',
         route: 'activity',
         i18nParams: {
-          expectedAmount: amountParam(event.expectedAmount),
-          actualAmount: amountParam(event.actualAmount),
+          expectedAmount: usdtParam(event.expectedAmount),
+          actualAmount: usdtParam(event.actualAmount),
           reasonCode: event.reasonCode || '',
+          reason: humanizeCode(event.reasonCode),
         },
       }),
     ].filter(Boolean);
@@ -105,8 +147,8 @@ export function mapIndexedFinancialEventToNotifications(event) {
         severity: 'success',
         route: 'orbits',
         i18nParams: {
-          amount: amountParam(event.recycleLiquidPaid || event.recycleGross),
-          escrowLocked: amountParam(event.recycleEscrowLocked),
+          amount: usdtParam(event.recycleLiquidPaid || event.recycleGross),
+          escrowLocked: usdtParam(event.recycleEscrowLocked),
         },
       }),
     ].filter(Boolean);
@@ -120,7 +162,7 @@ export function mapIndexedFinancialEventToNotifications(event) {
         i18nParams: {
           fromLevel: Number(event.fromLevel || 0),
           toLevel: Number(event.toLevel || 0),
-          usedAmount: amountParam(event.usedAmount),
+          usedAmount: usdtParam(event.usedAmount),
         },
       }),
     ].filter(Boolean);
@@ -132,10 +174,11 @@ export function mapIndexedFinancialEventToNotifications(event) {
         severity: event.eligible ? 'success' : 'info',
         route: 'my-tokens',
         i18nParams: {
-          amount: amountParam(event.tokenAmount),
+          amount: tokenParam(event.tokenAmount),
           rewardType: event.rewardType || '',
           eligible: Boolean(event.eligible),
           reasonCode: event.reasonCode || '',
+          reason: humanizeCode(event.reasonCode),
         },
       }),
     ].filter(Boolean);
@@ -151,9 +194,9 @@ export function mapIndexedTokenEventToNotifications(event) {
       severity: 'success',
       route: 'my-tokens',
       i18nParams: {
-        amount: amountParam(event.amount),
+        amount: tokenParam(event.amount),
         tokenSymbol: event.tokenSymbol || '',
-        reason: event.reason || '',
+        reason: humanizeCode(event.reason),
       },
     }),
   ].filter(Boolean);
