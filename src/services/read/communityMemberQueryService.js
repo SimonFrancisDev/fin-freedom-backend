@@ -4,6 +4,7 @@ import { safeRpcCall } from '../../blockchain/provider.js';
 import IndexedReceipt from '../../models/IndexedReceipt.js';
 import IndexedRegistrationEvent from '../../models/IndexedRegistrationEvent.js';
 import IndexedOrbitEvent from '../../models/IndexedOrbitEvent.js'
+import IndexedEscrowEvent from '../../models/IndexedEscrowEvent.js';
 
 const CACHE_TTL_MS = 15000;
 const cache = new Map();
@@ -86,6 +87,29 @@ function sumRawReceiptField(rows, fieldName) {
       return acc;
     }
   }, 0n);
+}
+
+function toBigIntSafe(value) {
+  try {
+    return BigInt(value || '0');
+  } catch {
+    return 0n;
+  }
+}
+
+async function sumReleasedEscrowToUser(address) {
+  try {
+    const rows = await IndexedEscrowEvent.find({
+      user: lower(normalizeAddress(address)),
+      eventName: 'EscrowReleasedToUser',
+    })
+      .select('amount')
+      .lean();
+
+    return rows.reduce((sum, row) => sum + toBigIntSafe(row.amount), 0n);
+  } catch {
+    return 0n;
+  }
 }
 
 async function tryRpc(fn, fallback) {
@@ -190,7 +214,7 @@ export async function fetchCommunityMemberSummary(address) {
     const contracts = getContracts();
     const registration = contracts.registration;
 
-    const [receiptRows, tokenBalances, isRegisteredRaw, referrerRaw, highestActiveLevelRaw] =
+    const [receiptRows, tokenBalances, isRegisteredRaw, referrerRaw, highestActiveLevelRaw, releasedEscrowRaw] =
       await Promise.all([
         IndexedReceipt.find({ receiver: normalizedLower })
           .select('liquidPaid escrowLocked grossAmount')
@@ -199,11 +223,13 @@ export async function fetchCommunityMemberSummary(address) {
         tryRpc(() => registration.isRegistered(normalizedAddress), false),
         tryRpc(() => registration.getReferrer(normalizedAddress), ethers.ZeroAddress),
         resolveHighestActiveLevel(registration, normalizedAddress),
+        sumReleasedEscrowToUser(normalizedAddress),
       ]);
 
     const activeLevelsCount = Number(highestActiveLevelRaw || 0);
 
     const totalLiquidPaidRaw = sumRawReceiptField(receiptRows, 'liquidPaid');
+    const totalWalletCreditedRaw = totalLiquidPaidRaw + releasedEscrowRaw;
     const totalEscrowLockedRaw = sumRawReceiptField(receiptRows, 'escrowLocked');
     const totalGrossAmountRaw = sumRawReceiptField(receiptRows, 'grossAmount');
 
@@ -220,12 +246,16 @@ export async function fetchCommunityMemberSummary(address) {
       totalReceiptEscrowLocked: formatRawUsdt(totalEscrowLockedRaw),
       totalReceiptGross: formatRawUsdt(totalGrossAmountRaw),
       generatedGross: formatRawUsdt(totalGrossAmountRaw),
-      walletCreditedLiquid: formatRawUsdt(totalLiquidPaidRaw),
+      receiptLiquidPaid: formatRawUsdt(totalLiquidPaidRaw),
+      walletCreditedLiquid: formatRawUsdt(totalWalletCreditedRaw),
       receiptEscrowLocked: formatRawUsdt(totalEscrowLockedRaw),
+      escrowReleasedToUser: formatRawUsdt(releasedEscrowRaw),
       financialTruthSource: {
         generatedGross: 'indexed_receipts',
-        walletCreditedLiquid: 'indexed_receipts',
+        receiptLiquidPaid: 'indexed_receipts',
+        walletCreditedLiquid: 'indexed_receipts_plus_escrow_releases',
         receiptEscrowLocked: 'indexed_receipts',
+        escrowReleasedToUser: 'indexed_escrow_events',
         tokens: 'live_token_balances_with_fallback',
       },
       totalReceiptCount: receiptRows.length,

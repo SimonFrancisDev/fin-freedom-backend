@@ -1713,6 +1713,10 @@ function sumReceiptMoney(receipts = []) {
   );
 }
 
+function sumWalletCreditedRaw(receiptLiquidRaw = 0n, releasedToUserRaw = 0n) {
+  return toBigIntSafe(receiptLiquidRaw) + toBigIntSafe(releasedToUserRaw);
+}
+
 function groupReceiptMoneyByLevel(receipts = [], escrowByLevel = new Map()) {
   const grouped = new Map();
 
@@ -1743,6 +1747,8 @@ function groupReceiptMoneyByLevel(receipts = [], escrowByLevel = new Map()) {
     .sort((a, b) => a.level - b.level)
     .map((item) => {
       const escrow = escrowByLevel.get(item.level) || {};
+      const escrowReleasedRaw = escrow.releasedToUserRaw ?? 0n;
+      const walletCreditedRaw = sumWalletCreditedRaw(item.liquidRaw, escrowReleasedRaw);
 
       return {
         level: item.level,
@@ -1750,8 +1756,9 @@ function groupReceiptMoneyByLevel(receipts = [], escrowByLevel = new Map()) {
 
         generated: formatUsdt(item.generatedRaw),
         liquid: formatUsdt(item.liquidRaw),
+        receiptLiquidPaid: formatUsdt(item.liquidRaw),
         generatedGross: formatUsdt(item.generatedRaw),
-        walletCreditedLiquid: formatUsdt(item.liquidRaw),
+        walletCreditedLiquid: formatUsdt(walletCreditedRaw),
 
         // Backward compatible alias. This previously represented receipt escrow.
         escrowUsed: formatUsdt(escrow.usedForUpgradeRaw ?? 0n),
@@ -1763,14 +1770,15 @@ function groupReceiptMoneyByLevel(receipts = [], escrowByLevel = new Map()) {
           )
         ),
         autoUpgradeUsed: formatUsdt(escrow.usedForUpgradeRaw ?? 0n),
-        escrowReleasedToUser: formatUsdt(escrow.releasedToUserRaw ?? 0n),
+        escrowReleasedToUser: formatUsdt(escrowReleasedRaw),
         currentLocked: formatUsdt(escrow.currentLockedRaw ?? 0n),
 
         receiptEscrowLocked: formatUsdt(item.receiptEscrowLockedRaw),
         currentEscrowLocked: formatUsdt(escrow.currentLockedRaw ?? 0n),
         financialTruthSource: {
           generatedGross: 'indexed_receipts',
-          walletCreditedLiquid: 'indexed_receipts',
+          receiptLiquidPaid: 'indexed_receipts',
+          walletCreditedLiquid: 'indexed_receipts_plus_escrow_releases',
           receiptEscrowLocked: 'indexed_receipts',
           escrowLockedLifetime: 'indexed_escrow_events_with_receipt_fallback',
           currentEscrowLocked: 'indexed_escrow_events',
@@ -1809,6 +1817,7 @@ function mergeGeneratedAndWalletByLevel(generatedReceipts = [], walletReceipts =
         generated: generated?.generated || '0.00',
         liquid: wallet?.liquid || '0.00',
         generatedGross: generated?.generatedGross || generated?.generated || '0.00',
+        receiptLiquidPaid: wallet?.receiptLiquidPaid || wallet?.liquid || '0.00',
         walletCreditedLiquid: wallet?.walletCreditedLiquid || wallet?.liquid || '0.00',
 
         receiptEscrowLocked:
@@ -2094,6 +2103,10 @@ export const fetchUserGlobalSummary = safeApiResponse(async function(address) {
 
   const walletReceiptTotals = sumReceiptMoney(walletReceipts);
   const generatedReceiptTotals = sumReceiptMoney(generatedReceipts);
+  const totalWalletCreditedRaw = sumWalletCreditedRaw(
+    walletReceiptTotals.totalLiquidRaw,
+    escrowMetrics.releasedToUserRaw
+  );
   const recycleReceipts = walletReceipts.filter(
     (receipt) => Number(receipt.receiptType || 0) === 4
   );
@@ -2142,8 +2155,9 @@ export const fetchUserGlobalSummary = safeApiResponse(async function(address) {
 
       totalGenerated: formatUsdt(generatedReceiptTotals.totalGeneratedRaw),
       totalLiquid: formatUsdt(walletReceiptTotals.totalLiquidRaw),
+      receiptLiquidPaid: formatUsdt(walletReceiptTotals.totalLiquidRaw),
       generatedGross: formatUsdt(generatedReceiptTotals.totalGeneratedRaw),
-      walletCreditedLiquid: formatUsdt(walletReceiptTotals.totalLiquidRaw),
+      walletCreditedLiquid: formatUsdt(totalWalletCreditedRaw),
 
       // Correct meanings.
       escrowLockedLifetime: formatUsdt(
@@ -2170,7 +2184,8 @@ export const fetchUserGlobalSummary = safeApiResponse(async function(address) {
       recycleEscrowLocked: formatUsdt(recycleReceiptTotals.receiptEscrowLockedRaw),
       financialTruthSource: {
         generatedGross: 'indexed_receipts',
-        walletCreditedLiquid: 'indexed_receipts',
+        receiptLiquidPaid: 'indexed_receipts',
+        walletCreditedLiquid: 'indexed_receipts_plus_escrow_releases',
         receiptEscrowLocked: 'indexed_receipts',
         escrowLockedLifetime: 'indexed_escrow_events_with_receipt_fallback',
         currentEscrowLocked: 'indexed_escrow_events_and_live_status',

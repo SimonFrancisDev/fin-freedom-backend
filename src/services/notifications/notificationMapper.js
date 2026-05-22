@@ -32,6 +32,14 @@ function tokenParam(value) {
   return formatUnitsParam(value, 6);
 }
 
+function rawAmountGtZero(value) {
+  try {
+    return BigInt(value ?? '0') > 0n;
+  } catch {
+    return false;
+  }
+}
+
 function humanizeCode(value) {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -87,12 +95,14 @@ function build(chainId, event, notificationType, walletAddress, overrides = {}) 
 
 export function mapIndexedReceiptToNotifications(event) {
   if ((event.rawEventName || event.eventName) !== 'DetailedPayoutReceiptRecorded') return [];
+  if (!rawAmountGtZero(event.liquidPaid)) return [];
+
   return [
     build(event.chainId, event, 'payment_received', event.receiver, {
       severity: 'success',
       route: 'activity',
       i18nParams: {
-        amount: usdtParam(event.liquidPaid || event.grossAmount),
+        amount: usdtParam(event.liquidPaid),
         generatedAmount: usdtParam(event.grossAmount),
         escrowLocked: usdtParam(event.escrowLocked),
       },

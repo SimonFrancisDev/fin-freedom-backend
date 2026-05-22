@@ -230,6 +230,23 @@ function getTelegramBotUsername() {
   return String(env.TELEGRAM_BOT_USERNAME || '').replace(/^@/, '').trim();
 }
 
+function preferenceKeyForNotification(type = '') {
+  const map = {
+    payment_received: 'paymentReceived',
+    payment_skipped: 'paymentSkipped',
+    escrow_locked: 'escrow',
+    escrow_used: 'escrow',
+    escrow_released: 'escrow',
+    auto_upgrade_completed: 'autoUpgrade',
+    recycle_completed: 'recycle',
+    token_reward_eligibility: 'tokenRewards',
+    token_reward_minted: 'tokenRewards',
+    system_notice: 'systemNotices',
+    community_notice: 'communityNotices',
+  };
+  return map[type] || '';
+}
+
 function buildBotDeepLink(code) {
   const username = getTelegramBotUsername();
   return username ? `https://t.me/${username}?start=${encodeURIComponent(code)}` : '';
@@ -308,6 +325,18 @@ export async function handleTelegramWebhook(update = {}) {
   subscription.verificationCodeHash = '';
   subscription.verificationExpiresAt = null;
   await subscription.save();
+
+  if (isTelegramReady()) {
+    fetch(`${TELEGRAM_API_BASE}/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: 'Telegram alerts are now active for your F-Freedom wallet.',
+        disable_web_page_preview: true,
+      }),
+    }).catch(() => {});
+  }
 
   return { ok: true, linked: true };
 }
@@ -414,6 +443,18 @@ export async function dispatchTelegramNotification(notification) {
       status: 'skipped',
       attemptCount: 0,
       lastError: !subscription ? 'No active Telegram subscription' : 'Telegram is not configured',
+    });
+  }
+
+  const preferenceKey = preferenceKeyForNotification(notification.notificationType);
+  if (preferenceKey && subscription.preferences?.[preferenceKey] === false) {
+    return NotificationDeliveryAttempt.create({
+      notificationId: notification._id,
+      walletAddress: notification.walletAddress,
+      channel: 'telegram',
+      status: 'skipped',
+      attemptCount: 0,
+      lastError: `Telegram preference disabled: ${preferenceKey}`,
     });
   }
 

@@ -370,8 +370,12 @@ async function fetchCommunityFinancialMetrics(contracts) {
   const nftPoolReceivedRaw = activationMetrics.nftPoolReceivedRaw;
   const operationsReceivedRaw = activationMetrics.operationsReceivedRaw;
 
+  const receiptLiquidPaidRaw = receiptMetrics.totalWalletCreditedRaw;
+  const totalWalletCreditedRaw =
+    receiptLiquidPaidRaw + escrowMetrics.releasedToUsersRaw;
+
   const totalProtocolDistributedValueRaw =
-    receiptMetrics.totalWalletCreditedRaw +
+    totalWalletCreditedRaw +
     escrowLockedLifetimeRaw +
     nftPoolReceivedRaw +
     operationsReceivedRaw;
@@ -381,6 +385,8 @@ async function fetchCommunityFinancialMetrics(contracts) {
     ...escrowMetrics,
     ...activationMetrics,
 
+    receiptLiquidPaidRaw,
+    totalWalletCreditedRaw,
     escrowLockedLifetimeRaw,
     nftPoolReceivedRaw,
     operationsReceivedRaw,
@@ -448,6 +454,7 @@ export async function fetchCommunitySummary() {
         totalProtocolDistributedValue: formatUsdt(financialMetrics.totalProtocolDistributedValueRaw),
 
         generatedGross: formatUsdt(financialMetrics.totalGeneratedRaw),
+        receiptLiquidPaid: formatUsdt(financialMetrics.receiptLiquidPaidRaw),
         walletCreditedLiquid: formatUsdt(financialMetrics.totalWalletCreditedRaw),
         receiptEscrowLocked: formatUsdt(financialMetrics.receiptEscrowLockedRaw),
         escrowLockedLifetime: formatUsdt(financialMetrics.escrowLockedLifetimeRaw),
@@ -475,7 +482,8 @@ export async function fetchCommunitySummary() {
         recycleEscrowLocked: formatUsdt(financialMetrics.recycleEscrowLockedRaw),
         financialTruthSource: {
           generatedGross: 'indexed_receipts',
-          walletCreditedLiquid: 'indexed_receipts',
+          receiptLiquidPaid: 'indexed_receipts',
+          walletCreditedLiquid: 'indexed_receipts_plus_escrow_releases',
           receiptEscrowLocked: 'indexed_receipts',
           escrowLockedLifetime: financialMetrics.lockedLifetimeRaw > 0n
             ? 'indexed_or_live_escrow'
