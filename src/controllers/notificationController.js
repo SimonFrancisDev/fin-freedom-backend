@@ -1,4 +1,5 @@
 import {
+  clearAllNotifications,
   clearNotification,
   clearReadNotifications,
   getNotificationById,
@@ -63,6 +64,14 @@ export async function clearOneNotification(req, res) {
 export async function clearRead(req, res) {
   try {
     res.json(await clearReadNotifications(walletFrom(req)));
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+export async function clearAll(req, res) {
+  try {
+    res.json(await clearAllNotifications(walletFrom(req)));
   } catch (error) {
     sendError(res, error);
   }

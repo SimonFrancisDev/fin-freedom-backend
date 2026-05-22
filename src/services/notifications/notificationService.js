@@ -28,6 +28,29 @@ function dedupeKeyFor(input) {
   return `${input.chainId}:${txHash}:${logIndex}:${input.notificationType}`;
 }
 
+function preferenceKeyForNotification(type = '') {
+  const map = {
+    payment_received: 'paymentReceived',
+    payment_skipped: 'paymentSkipped',
+    escrow_locked: 'escrow',
+    escrow_used: 'escrow',
+    escrow_released: 'escrow',
+    auto_upgrade_completed: 'autoUpgrade',
+    recycle_completed: 'recycle',
+    token_reward_eligibility: 'tokenRewards',
+    token_reward_minted: 'tokenRewards',
+    system_notice: 'systemNotices',
+    community_notice: 'communityNotices',
+  };
+  return map[type] || '';
+}
+
+function webPreferenceAllows(notification, preferences) {
+  const preferenceKey = preferenceKeyForNotification(notification.notificationType);
+  if (!preferenceKey) return true;
+  return preferences?.web?.[preferenceKey] !== false;
+}
+
 export async function upsertNotification(input) {
   if (!env.NOTIFICATIONS_ENABLED) return null;
   const walletAddress = normalizeWallet(input.walletAddress);
@@ -136,13 +159,17 @@ export async function listNotifications(query = {}) {
   if (query.cursor) filter.createdAt = { $lt: new Date(query.cursor) };
 
   const limit = Math.min(Math.max(Number(query.limit) || DEFAULT_LIMIT, 1), MAX_LIMIT);
-  const rows = await Notification.find(filter)
+  const [rows, preferences] = await Promise.all([
+    Notification.find(filter)
     .sort({ createdAt: -1, _id: -1 })
-    .limit(limit + 1)
-    .lean();
+      .limit(limit * 3)
+      .lean(),
+    NotificationPreference.findOne({ walletAddress }).lean(),
+  ]);
 
-  const hasMore = rows.length > limit;
-  const items = hasMore ? rows.slice(0, limit) : rows;
+  const filteredRows = rows.filter((item) => webPreferenceAllows(item, preferences));
+  const hasMore = filteredRows.length > limit;
+  const items = hasMore ? filteredRows.slice(0, limit) : filteredRows;
 
   return {
     ok: true,
@@ -209,6 +236,20 @@ export async function clearReadNotifications(wallet) {
   }
   await Notification.updateMany(
     { walletAddress, status: 'read' },
+    { $set: { status: 'cleared', clearedAt: new Date() } }
+  );
+  return { ok: true };
+}
+
+export async function clearAllNotifications(wallet) {
+  const walletAddress = normalizeWallet(wallet);
+  if (!walletAddress) {
+    const error = new Error('Wallet address is required');
+    error.status = 400;
+    throw error;
+  }
+  await Notification.updateMany(
+    { walletAddress, status: { $ne: 'cleared' } },
     { $set: { status: 'cleared', clearedAt: new Date() } }
   );
   return { ok: true };

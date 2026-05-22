@@ -5,6 +5,7 @@ import IndexedReceipt from '../../models/IndexedReceipt.js';
 import IndexedRegistrationEvent from '../../models/IndexedRegistrationEvent.js';
 import IndexedOrbitEvent from '../../models/IndexedOrbitEvent.js'
 import IndexedEscrowEvent from '../../models/IndexedEscrowEvent.js';
+import ReferralCode from '../../models/ReferralCode.js';
 
 const CACHE_TTL_MS = 15000;
 const cache = new Map();
@@ -293,6 +294,19 @@ export async function fetchCommunityMemberReferralStats(address) {
         .lean(),
     ]);
 
+    const referralUsers = directReferrals.map((item) => lower(item.user)).filter(Boolean);
+    const referralCodes = referralUsers.length
+      ? await ReferralCode.find({
+          walletAddress: { $in: referralUsers },
+          isActive: true,
+        })
+          .select('walletAddress shortCode')
+          .lean()
+      : [];
+    const referralCodeMap = new Map(
+      referralCodes.map((item) => [lower(item.walletAddress), item.shortCode])
+    );
+
     const totalGrossRaw = sumRawReceiptField(referralReceipts, 'grossAmount');
     const totalLiquidRaw = sumRawReceiptField(referralReceipts, 'liquidPaid');
     const totalEscrowRaw = sumRawReceiptField(referralReceipts, 'escrowLocked');
@@ -314,6 +328,8 @@ export async function fetchCommunityMemberReferralStats(address) {
       referralReceiptCount: referralReceipts.length,
       directReferrals: directReferrals.map((item) => ({
         user: item.user,
+        referralId: referralCodeMap.get(lower(item.user)) || '',
+        shortCode: referralCodeMap.get(lower(item.user)) || '',
         timestamp: item.timestamp,
         txHash: item.txHash,
         blockNumber: item.blockNumber,
@@ -469,6 +485,10 @@ export async function fetchCommunityMemberOrbitNetwork(address) {
       address: normalizedAddress,
       networkType: 'orbit-cycle-members',
       levels: formattedLevels,
+      totalMembersAcrossLevels: Object.values(formattedLevels).reduce(
+        (sum, item) => sum + Number(item.totalMembersAcrossCycles || 0),
+        0
+      ),
     }
   })
 }
