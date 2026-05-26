@@ -14,6 +14,27 @@
     "inputs": [
       {
         "internalType": "address",
+        "name": "orbitOwner",
+        "type": "address"
+      },
+      {
+        "internalType": "uint8",
+        "name": "level",
+        "type": "uint8"
+      },
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
+    "name": "DuplicateOrbitPosition",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
         "name": "implementation",
         "type": "address"
       }
@@ -1584,6 +1605,11 @@
       },
       {
         "internalType": "uint256",
+        "name": "ruleBaseAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
         "name": "activationId",
         "type": "uint256"
       }
@@ -1601,6 +1627,11 @@
             "internalType": "uint32",
             "name": "cycleNumber",
             "type": "uint32"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mirrorOwnerLiquidAmount",
+            "type": "uint256"
           },
           {
             "internalType": "uint256",

@@ -14,16 +14,40 @@ import {
 } from './services/notifications/notificationDeliveryWorker.js';
 import env from './config/env.js';
 
+async function initializeBlockchainForServer() {
+  try {
+    const rpcInfo = await connectBlockchain({
+      retries: env.BLOCKCHAIN_STARTUP_RETRY_ATTEMPTS,
+      baseDelayMs: env.BLOCKCHAIN_STARTUP_RETRY_BASE_DELAY_MS,
+    });
+    console.log('RPC connected:', rpcInfo);
+  } catch (error) {
+    console.error('RPC startup check failed:', error);
+    if (env.BLOCKCHAIN_STARTUP_REQUIRED) {
+      throw error;
+    }
+    console.warn('Continuing server startup in degraded blockchain mode.');
+    return;
+  }
+
+  try {
+    const contracts = await verifyContracts();
+    console.log('Contracts verified:');
+    console.log(contracts);
+  } catch (error) {
+    console.error('Contract startup verification failed:', error);
+    if (env.BLOCKCHAIN_STARTUP_REQUIRED) {
+      throw error;
+    }
+    console.warn('Continuing server startup with contract verification deferred.');
+  }
+}
+
 async function startServer() {
   try {
     await connectDB();
 
-    const rpcInfo = await connectBlockchain();
-    console.log('RPC connected:', rpcInfo);
-
-    const contracts = await verifyContracts();
-    console.log('Contracts verified:');
-    console.log(contracts);
+    await initializeBlockchainForServer();
 
     const server = http.createServer(app);
 

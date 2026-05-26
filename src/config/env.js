@@ -109,6 +109,19 @@ const env = {
   ),
 
   RUN_INDEXER: optionalBoolean('RUN_INDEXER', false),
+  BLOCKCHAIN_STARTUP_REQUIRED: optionalBoolean('BLOCKCHAIN_STARTUP_REQUIRED', false),
+  BLOCKCHAIN_STARTUP_RETRY_ATTEMPTS: clamp(
+    optionalInteger('BLOCKCHAIN_STARTUP_RETRY_ATTEMPTS', 1),
+    0,
+    5,
+    1
+  ),
+  BLOCKCHAIN_STARTUP_RETRY_BASE_DELAY_MS: clamp(
+    optionalInteger('BLOCKCHAIN_STARTUP_RETRY_BASE_DELAY_MS', 500),
+    100,
+    5000,
+    500
+  ),
 
   RPC_MAX_CONCURRENCY: clamp(optionalInteger('RPC_MAX_CONCURRENCY', 4), 1, 20, 4),
   RPC_MAX_RPS: clamp(optionalInteger('RPC_MAX_RPS', 50), 1, 500, 50),

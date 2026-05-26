@@ -1,5 +1,10 @@
 [
   {
+    "inputs": [],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -98,6 +103,11 @@
       }
     ],
     "name": "SafeERC20FailedOperation",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "TokenAmountMismatch",
     "type": "error"
   },
   {
@@ -699,6 +709,39 @@
       }
     ],
     "name": "recoverTokens",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint8",
+        "name": "fromLevel",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint8",
+        "name": "toLevel",
+        "type": "uint8"
+      },
+      {
+        "internalType": "address",
+        "name": "recipient",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "releaseAmountForUpgrade",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

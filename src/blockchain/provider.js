@@ -1053,11 +1053,14 @@ export async function safeSharedRpcCall(key, fn) {
   return dedupedRpcCall(key, fn, 300);
 }
 
-export async function connectBlockchain() {
+export async function connectBlockchain(options = {}) {
   initProviders();
 
-  const network = await safeRpcCall((provider) => provider.getNetwork());
-  const blockNumber = await safeRpcCall((provider) => provider.getBlockNumber());
+  const retries = options.retries ?? getHttpRetryAttempts();
+  const baseDelayMs = options.baseDelayMs ?? getHttpRetryBaseDelayMs();
+
+  const network = await safeRpcCall((provider) => provider.getNetwork(), retries, baseDelayMs);
+  const blockNumber = await safeRpcCall((provider) => provider.getBlockNumber(), retries, baseDelayMs);
 
   ensureWsBlockSubscriptionStarted();
 

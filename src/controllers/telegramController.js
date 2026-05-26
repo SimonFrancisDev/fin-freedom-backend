@@ -41,7 +41,10 @@ export async function getTelegramStatusController(req, res) {
 
 export async function updateTelegramPreferencesController(req, res) {
   try {
-    res.json(await updateTelegramPreferences(req.body.wallet, req.body.preferences || {}));
+    res.json(await updateTelegramPreferences(req.body.wallet, req.body.preferences || {}, {
+      signature: req.body.signature,
+      timestamp: req.body.timestamp,
+    }));
   } catch (error) {
     sendError(res, error);
   }
@@ -49,7 +52,10 @@ export async function updateTelegramPreferencesController(req, res) {
 
 export async function unsubscribeTelegramController(req, res) {
   try {
-    res.json(await unsubscribeTelegram(req.body.wallet));
+    res.json(await unsubscribeTelegram(req.body.wallet, {
+      signature: req.body.signature,
+      timestamp: req.body.timestamp,
+    }));
   } catch (error) {
     sendError(res, error);
   }

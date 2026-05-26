@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { getAddress, isAddress, verifyMessage } from 'ethers';
 import env from '../../config/env.js';
 import TelegramSubscription from '../../models/TelegramSubscription.js';
 import NotificationDeliveryAttempt from '../../models/NotificationDeliveryAttempt.js';
@@ -8,6 +9,7 @@ function isTelegramReady() {
 }
 
 const TELEGRAM_API_BASE = 'https://api.telegram.org';
+const WALLET_PROOF_TTL_MS = 10 * 60 * 1000;
 
 const templates = {
   en: {
@@ -221,6 +223,62 @@ function hashCode(code) {
   return crypto.createHash('sha256').update(String(code)).digest('hex');
 }
 
+function normalizeWalletAddress(walletAddress) {
+  const value = String(walletAddress || '').trim();
+  return isAddress(value) ? getAddress(value).toLowerCase() : '';
+}
+
+function buildWalletProofMessage(action, walletAddress, timestamp) {
+  return [
+    'Fin Freedom Network',
+    `Action: ${action}`,
+    `Wallet: ${getAddress(walletAddress)}`,
+    `Timestamp: ${timestamp}`,
+  ].join('\n');
+}
+
+function requireWalletProof({ walletAddress, action, signature, timestamp }) {
+  const normalized = normalizeWalletAddress(walletAddress);
+  if (!normalized) {
+    const error = new Error('Valid wallet address is required');
+    error.status = 400;
+    throw error;
+  }
+
+  const numericTimestamp = Number(timestamp);
+  if (!Number.isFinite(numericTimestamp) || Math.abs(Date.now() - numericTimestamp) > WALLET_PROOF_TTL_MS) {
+    const error = new Error('Wallet authorization expired. Please try again.');
+    error.status = 401;
+    throw error;
+  }
+
+  if (!signature) {
+    const error = new Error('Wallet signature is required');
+    error.status = 401;
+    throw error;
+  }
+
+  let recovered;
+  try {
+    recovered = verifyMessage(
+      buildWalletProofMessage(action, normalized, numericTimestamp),
+      signature
+    );
+  } catch {
+    const error = new Error('Invalid wallet signature');
+    error.status = 403;
+    throw error;
+  }
+
+  if (getAddress(recovered).toLowerCase() !== normalized) {
+    const error = new Error('Wallet signature does not match this wallet');
+    error.status = 403;
+    throw error;
+  }
+
+  return normalized;
+}
+
 function nextRetryDate(attemptCount) {
   const delay = env.NOTIFICATION_DELIVERY_RETRY_BASE_DELAY_MS * Math.max(1, attemptCount);
   return new Date(Date.now() + delay);
@@ -266,13 +324,13 @@ function extractTelegramCode(update = {}) {
   return codeMatch ? codeMatch[1] : '';
 }
 
-export async function startTelegramLink({ walletAddress, language = 'en' }) {
-  const normalized = String(walletAddress || '').toLowerCase().trim();
-  if (!normalized) {
-    const error = new Error('Wallet address is required');
-    error.status = 400;
-    throw error;
-  }
+export async function startTelegramLink({ walletAddress, language = 'en', signature = '', timestamp = 0 }) {
+  const normalized = requireWalletProof({
+    walletAddress,
+    action: 'telegram_link_start',
+    signature,
+    timestamp,
+  });
 
   const code = String(crypto.randomInt(100000, 999999));
   await TelegramSubscription.updateOne(
@@ -341,8 +399,13 @@ export async function handleTelegramWebhook(update = {}) {
   return { ok: true, linked: true };
 }
 
-export async function verifyTelegramLink({ walletAddress, code, chatId, telegramUserId = '', username = '', language = 'en' }) {
-  const normalized = String(walletAddress || '').toLowerCase().trim();
+export async function verifyTelegramLink({ walletAddress, code, chatId, telegramUserId = '', username = '', language = 'en', signature = '', timestamp = 0 }) {
+  const normalized = requireWalletProof({
+    walletAddress,
+    action: 'telegram_link_verify',
+    signature,
+    timestamp,
+  });
   const subscription = await TelegramSubscription.findOne({ walletAddress: normalized, status: 'pending' });
 
   if (!subscription || !subscription.verificationExpiresAt || subscription.verificationExpiresAt < new Date()) {
@@ -370,7 +433,7 @@ export async function verifyTelegramLink({ walletAddress, code, chatId, telegram
 }
 
 export async function getTelegramStatus(walletAddress) {
-  const normalized = String(walletAddress || '').toLowerCase().trim();
+  const normalized = normalizeWalletAddress(walletAddress);
   const subscription = normalized
     ? await TelegramSubscription.findOne({ walletAddress: normalized }).lean()
     : null;
@@ -386,13 +449,13 @@ export async function getTelegramStatus(walletAddress) {
   };
 }
 
-export async function updateTelegramPreferences(walletAddress, preferences = {}) {
-  const normalized = String(walletAddress || '').toLowerCase().trim();
-  if (!normalized) {
-    const error = new Error('Wallet address is required');
-    error.status = 400;
-    throw error;
-  }
+export async function updateTelegramPreferences(walletAddress, preferences = {}, proof = {}) {
+  const normalized = requireWalletProof({
+    walletAddress,
+    action: 'telegram_preferences_update',
+    signature: proof.signature,
+    timestamp: proof.timestamp,
+  });
 
   const allowed = [
     'paymentReceived',
@@ -418,8 +481,13 @@ export async function updateTelegramPreferences(walletAddress, preferences = {})
   return { ok: true, preferences: subscription?.preferences || null };
 }
 
-export async function unsubscribeTelegram(walletAddress) {
-  const normalized = String(walletAddress || '').toLowerCase().trim();
+export async function unsubscribeTelegram(walletAddress, proof = {}) {
+  const normalized = requireWalletProof({
+    walletAddress,
+    action: 'telegram_unsubscribe',
+    signature: proof.signature,
+    timestamp: proof.timestamp,
+  });
   await TelegramSubscription.updateOne(
     { walletAddress: normalized },
     { $set: { status: 'unsubscribed' } }

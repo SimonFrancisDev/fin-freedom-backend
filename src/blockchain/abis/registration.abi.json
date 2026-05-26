@@ -1,5 +1,10 @@
 [
   {
+    "inputs": [],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -745,18 +750,18 @@
     "inputs": [
       {
         "internalType": "uint8",
-        "name": "level",
+        "name": "",
         "type": "uint8"
       },
       {
         "internalType": "uint256",
-        "name": "newPrice",
+        "name": "",
         "type": "uint256"
       }
     ],
     "name": "updateLevelPrice",
     "outputs": [],
-    "stateMutability": "nonpayable",
+    "stateMutability": "view",
     "type": "function"
   },
   {

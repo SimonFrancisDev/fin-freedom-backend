@@ -215,7 +215,7 @@ export async function fetchCommunityMemberSummary(address) {
     const contracts = getContracts();
     const registration = contracts.registration;
 
-    const [receiptRows, tokenBalances, isRegisteredRaw, referrerRaw, highestActiveLevelRaw, releasedEscrowRaw] =
+    const [receiptRows, tokenBalances, isRegisteredRaw, referrerRaw, highestActiveLevelRaw, releasedEscrowRaw, id1WalletRaw] =
       await Promise.all([
         IndexedReceipt.find({ receiver: normalizedLower })
           .select('liquidPaid escrowLocked grossAmount')
@@ -225,9 +225,12 @@ export async function fetchCommunityMemberSummary(address) {
         tryRpc(() => registration.getReferrer(normalizedAddress), ethers.ZeroAddress),
         resolveHighestActiveLevel(registration, normalizedAddress),
         sumReleasedEscrowToUser(normalizedAddress),
+        tryRpc(() => registration.id1Wallet(), ethers.ZeroAddress),
       ]);
 
-    const activeLevelsCount = Number(highestActiveLevelRaw || 0);
+    const isProtocolId1Wallet = lower(id1WalletRaw) === normalizedLower;
+    const highestActiveLevel = isProtocolId1Wallet ? 10 : Number(highestActiveLevelRaw || 0);
+    const activeLevelsCount = highestActiveLevel;
 
     const totalLiquidPaidRaw = sumRawReceiptField(receiptRows, 'liquidPaid');
     const totalWalletCreditedRaw = totalLiquidPaidRaw + releasedEscrowRaw;
@@ -239,9 +242,10 @@ export async function fetchCommunityMemberSummary(address) {
 
     return {
       address: normalizedAddress,
-      isRegistered: Boolean(isRegisteredRaw),
+      isRegistered: Boolean(isRegisteredRaw) || isProtocolId1Wallet,
+      isProtocolId1Wallet,
       referrer: cleanReferrer,
-      highestActiveLevel: Number(highestActiveLevelRaw || 0),
+      highestActiveLevel,
       activeLevelsCount,
       totalReceiptEarnings: formatRawUsdt(totalLiquidPaidRaw),
       totalReceiptEscrowLocked: formatRawUsdt(totalEscrowLockedRaw),
