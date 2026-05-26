@@ -1534,6 +1534,24 @@ export const fetchOrbitPositionDetails = safeApiResponse(async function fetchOrb
         }
       }
 
+      if (!isMissing && hasNewIndexedActivity && !snapshot?.occupant) {
+        logDebug('[POSITION_SNAPSHOT_STALE_EMPTY_REBUILD]', {
+          address: normalizedAddress,
+          level,
+          position,
+        });
+
+        const rebuilt = await rebuildPositionSnapshot(
+          normalizedAddress,
+          level,
+          position
+        );
+
+        if (rebuilt) {
+          snapshot = rebuilt;
+        }
+      }
+
       if (isIncomplete || hasNewIndexedActivity || isStale) {
         refreshPositionSnapshotInBackground(
           normalizedAddress,

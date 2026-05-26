@@ -1,21 +1,20 @@
 import crypto from 'crypto';
-import { getAddress, isAddress, verifyMessage } from 'ethers';
 import env from '../../config/env.js';
 import TelegramSubscription from '../../models/TelegramSubscription.js';
 import NotificationDeliveryAttempt from '../../models/NotificationDeliveryAttempt.js';
+import { normalizeWalletAddress, requireWalletProof } from '../../utils/walletProof.js';
 
 function isTelegramReady() {
   return Boolean(env.TELEGRAM_ENABLED && env.TELEGRAM_BOT_TOKEN);
 }
 
 const TELEGRAM_API_BASE = 'https://api.telegram.org';
-const WALLET_PROOF_TTL_MS = 10 * 60 * 1000;
 
 const templates = {
   en: {
-    payment_received: 'Payment received for level {{level}}. Wallet credited: {{amount}}.',
-    payment_skipped: 'Payment skipped for level {{level}}. Reason: {{reasonCode}}.',
-    escrow_locked: 'Escrow locked: {{amount}} from level {{fromLevel}} to {{toLevel}}.',
+    payment_received: 'Wallet credited\n\nID: {{receiverCode}}\nProgram: {{orbit}} - Level {{level}}\nAmount: +{{amount}} USDT\nType: {{role}}\nPosition: Line {{line}}, Position {{position}}\nFrom: {{sourceCode}}\nTransaction: {{txUrl}}',
+    payment_skipped: 'Payment not delivered\n\nID: {{receiverCode}}\nProgram: Level {{level}}\nExpected: {{expectedAmount}} USDT\nDelivered: {{actualAmount}} USDT\nReason: {{reason}}\nTransaction: {{txUrl}}',
+    escrow_locked: 'Auto-upgrade escrow locked\n\nID: {{receiverCode}}\nProgram: {{orbit}} - Level {{fromLevel}} to Level {{toLevel}}\nLocked: {{amount}} USDT\nType: {{role}}\nPosition: Line {{line}}, Position {{position}}\nFrom: {{sourceCode}}\nTransaction: {{txUrl}}',
     escrow_used: 'Escrow used: {{amount}} for level {{toLevel}}.',
     escrow_released: 'Escrow released: {{amount}}.',
     auto_upgrade_completed: 'Auto-upgrade completed from level {{fromLevel}} to {{toLevel}}.',
@@ -221,62 +220,6 @@ function normalizeTemplateParams(type, params = {}) {
 
 function hashCode(code) {
   return crypto.createHash('sha256').update(String(code)).digest('hex');
-}
-
-function normalizeWalletAddress(walletAddress) {
-  const value = String(walletAddress || '').trim();
-  return isAddress(value) ? getAddress(value).toLowerCase() : '';
-}
-
-function buildWalletProofMessage(action, walletAddress, timestamp) {
-  return [
-    'Fin Freedom Network',
-    `Action: ${action}`,
-    `Wallet: ${getAddress(walletAddress)}`,
-    `Timestamp: ${timestamp}`,
-  ].join('\n');
-}
-
-function requireWalletProof({ walletAddress, action, signature, timestamp }) {
-  const normalized = normalizeWalletAddress(walletAddress);
-  if (!normalized) {
-    const error = new Error('Valid wallet address is required');
-    error.status = 400;
-    throw error;
-  }
-
-  const numericTimestamp = Number(timestamp);
-  if (!Number.isFinite(numericTimestamp) || Math.abs(Date.now() - numericTimestamp) > WALLET_PROOF_TTL_MS) {
-    const error = new Error('Wallet authorization expired. Please try again.');
-    error.status = 401;
-    throw error;
-  }
-
-  if (!signature) {
-    const error = new Error('Wallet signature is required');
-    error.status = 401;
-    throw error;
-  }
-
-  let recovered;
-  try {
-    recovered = verifyMessage(
-      buildWalletProofMessage(action, normalized, numericTimestamp),
-      signature
-    );
-  } catch {
-    const error = new Error('Invalid wallet signature');
-    error.status = 403;
-    throw error;
-  }
-
-  if (getAddress(recovered).toLowerCase() !== normalized) {
-    const error = new Error('Wallet signature does not match this wallet');
-    error.status = 403;
-    throw error;
-  }
-
-  return normalized;
 }
 
 function nextRetryDate(attemptCount) {

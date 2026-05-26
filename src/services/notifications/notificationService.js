@@ -95,15 +95,15 @@ async function createMappedNotifications(items) {
 }
 
 export async function notifyFromIndexedReceipt(event) {
-  return createMappedNotifications(mapIndexedReceiptToNotifications(event));
+  return createMappedNotifications(await mapIndexedReceiptToNotifications(event));
 }
 
 export async function notifyFromIndexedEscrowEvent(event) {
-  return createMappedNotifications(mapIndexedEscrowEventToNotifications(event));
+  return createMappedNotifications(await mapIndexedEscrowEventToNotifications(event));
 }
 
 export async function notifyFromIndexedFinancialEvent(event) {
-  return createMappedNotifications(mapIndexedFinancialEventToNotifications(event));
+  return createMappedNotifications(await mapIndexedFinancialEventToNotifications(event));
 }
 
 export async function notifyFromIndexedTokenEvent(event) {

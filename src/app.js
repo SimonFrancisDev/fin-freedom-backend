@@ -29,10 +29,7 @@ app.use(
 );
 
 const allowedOrigins = [
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
-  'https://fin-freedom-backend-3.onrender.com',
-  'https://ffn-backend-qx15.onrender.com',
+  ...(env.NODE_ENV === 'production' ? [] : ['http://localhost:3000', 'http://127.0.0.1:3000']),
   env.FRONTEND_ORIGIN,
   ...(env.CORS_ALLOWED_ORIGINS || '')
     .split(',')
@@ -41,6 +38,9 @@ const allowedOrigins = [
 ].filter(Boolean);
 
 const hasConfiguredCorsOrigins = Boolean(env.FRONTEND_ORIGIN || env.CORS_ALLOWED_ORIGINS);
+if (env.NODE_ENV === 'production' && !hasConfiguredCorsOrigins) {
+  throw new Error('FRONTEND_ORIGIN or CORS_ALLOWED_ORIGINS must be configured in production');
+}
 
 app.use(
   cors({
@@ -51,7 +51,7 @@ app.use(
         return callback(null, true);
       }
 
-      if (!hasConfiguredCorsOrigins) {
+      if (!hasConfiguredCorsOrigins && env.NODE_ENV !== 'production') {
         return callback(null, true);
       }
 

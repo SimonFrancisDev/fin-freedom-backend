@@ -9,6 +9,7 @@ import {
   markNotificationRead,
   updatePreferences,
 } from '../services/notifications/notificationService.js';
+import { requireWalletProof } from '../utils/walletProof.js';
 
 function sendError(res, error) {
   res.status(error.status || 500).json({
@@ -19,6 +20,16 @@ function sendError(res, error) {
 
 function walletFrom(req) {
   return req.query.wallet || req.body.wallet || req.params.wallet || '';
+}
+
+function requireNotificationWalletProof(req) {
+  const wallet = walletFrom(req);
+  return requireWalletProof({
+    walletAddress: wallet,
+    action: 'notification_manage',
+    signature: req.body.signature,
+    timestamp: req.body.timestamp,
+  });
 }
 
 export async function getNotificationFeed(req, res) {
@@ -39,6 +50,7 @@ export async function getNotificationDetail(req, res) {
 
 export async function readNotification(req, res) {
   try {
+    requireNotificationWalletProof(req);
     res.json(await markNotificationRead(req.params.id, walletFrom(req)));
   } catch (error) {
     sendError(res, error);
@@ -47,6 +59,7 @@ export async function readNotification(req, res) {
 
 export async function readAllNotifications(req, res) {
   try {
+    requireNotificationWalletProof(req);
     res.json(await markAllNotificationsRead(walletFrom(req)));
   } catch (error) {
     sendError(res, error);
@@ -55,6 +68,7 @@ export async function readAllNotifications(req, res) {
 
 export async function clearOneNotification(req, res) {
   try {
+    requireNotificationWalletProof(req);
     res.json(await clearNotification(req.params.id, walletFrom(req)));
   } catch (error) {
     sendError(res, error);
@@ -63,6 +77,7 @@ export async function clearOneNotification(req, res) {
 
 export async function clearRead(req, res) {
   try {
+    requireNotificationWalletProof(req);
     res.json(await clearReadNotifications(walletFrom(req)));
   } catch (error) {
     sendError(res, error);
@@ -71,6 +86,7 @@ export async function clearRead(req, res) {
 
 export async function clearAll(req, res) {
   try {
+    requireNotificationWalletProof(req);
     res.json(await clearAllNotifications(walletFrom(req)));
   } catch (error) {
     sendError(res, error);
@@ -87,6 +103,7 @@ export async function getNotificationPreferences(req, res) {
 
 export async function patchNotificationPreferences(req, res) {
   try {
+    requireNotificationWalletProof(req);
     res.json(await updatePreferences(walletFrom(req), req.body));
   } catch (error) {
     sendError(res, error);

@@ -44,6 +44,7 @@ const env = {
   MONGODB_URI: required('MONGODB_URI'),
 
   CHAIN_ID: optionalInteger('CHAIN_ID', 80002),
+  BLOCK_EXPLORER_URL: optional('BLOCK_EXPLORER_URL', ''),
 
   // Multi-RPC support
   RPC_URL_1: optional('RPC_URL_1'),
@@ -243,6 +244,12 @@ const env = {
     30000
   ),
   NOTIFICATION_DIGEST_ENABLED: optionalBoolean('NOTIFICATION_DIGEST_ENABLED', false),
+  WALLET_PROOF_TTL_MS: clamp(
+    optionalInteger('WALLET_PROOF_TTL_MS', 600000),
+    60000,
+    3600000,
+    600000
+  ),
 
   TELEGRAM_ENABLED: optionalBoolean('TELEGRAM_ENABLED', false),
   TELEGRAM_BOT_TOKEN: optional('TELEGRAM_BOT_TOKEN'),

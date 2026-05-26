@@ -2,8 +2,10 @@ import ReferralCode from '../models/ReferralCode.js'
 import IndexedRegistrationEvent from '../models/IndexedRegistrationEvent.js'
 import { generateShortCode } from '../utils/shortCodeGenerator.js'
 import { ethers } from 'ethers'
+import { getContracts } from '../blockchain/contracts.js'
 
 const SYSTEM_REFERRER_CODE = 'FIN-FREEDOM'
+const SYSTEM_REFERRER_ALIASES = new Set(['FIN-FREEDOM', 'FINFREEDOM', 'ID1', 'SYSTEM'])
 const REFERRAL_BASE_URL = process.env.REFERRAL_BASE_URL || 'https://finfreedomnetwork.io/ref'
 
 function normalizeWallet(address = '') {
@@ -124,8 +126,30 @@ export const resolveReferralCode = async (req, res) => {
   }
 
   try {
+    const normalizedCode = String(shortCode).trim().toUpperCase()
+    if (SYSTEM_REFERRER_ALIASES.has(normalizedCode)) {
+      const contracts = getContracts()
+      const id1Wallet = await contracts.registration.id1Wallet()
+
+      if (!id1Wallet || id1Wallet === ethers.ZeroAddress) {
+        return res.status(503).json({
+          success: false,
+          code: 'ID1_NOT_CONFIGURED',
+          message: 'System ID is not configured yet.',
+        })
+      }
+
+      return res.json({
+        success: true,
+        walletAddress: id1Wallet,
+        shortCode: SYSTEM_REFERRER_CODE,
+        referralId: SYSTEM_REFERRER_CODE,
+        system: true,
+      })
+    }
+
     const referral = await ReferralCode.findOne({
-      shortCode: String(shortCode).toUpperCase(),
+      shortCode: normalizedCode,
       isActive: true,
     }).lean()
 
