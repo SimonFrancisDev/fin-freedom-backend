@@ -7,6 +7,10 @@ import {
   startIndexer,
   stopIndexer,
 } from './services/indexerService.js';
+import {
+  startRealtimeEventIndexer,
+  stopRealtimeEventIndexer,
+} from './services/realtimeEventIndexer.js';
 
 function parseCliArgs(argv) {
   const [command, ...rest] = argv;
@@ -84,6 +88,7 @@ async function startWorker() {
     }
 
     await connectWorkerDependencies();
+    await startRealtimeEventIndexer();
     await startIndexer({ processRole: 'worker' });
     console.log('Indexer worker started successfully.');
   } catch (error) {
@@ -96,6 +101,7 @@ startWorker();
 
 async function shutdown(signal) {
   console.log(`${signal} received. Stopping indexer worker...`);
+  await stopRealtimeEventIndexer();
   await stopIndexer();
   process.exit(0);
 }

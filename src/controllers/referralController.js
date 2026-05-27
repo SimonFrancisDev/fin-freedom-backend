@@ -24,6 +24,47 @@ async function findRegistrationEvent(address) {
     .lean()
 }
 
+async function readLiveRegistration(address) {
+  const wallet = normalizeWallet(address)
+  if (!ethers.isAddress(wallet)) return null
+
+  const contracts = getContracts()
+  const isRegistered = await contracts.registration.isRegistered(wallet)
+
+  if (!isRegistered) return null
+
+  let referrer = ethers.ZeroAddress
+  try {
+    referrer = await contracts.registration.getReferrer(wallet)
+  } catch (error) {
+    console.warn('Live referrer lookup failed:', {
+      wallet,
+      message: error?.message || String(error),
+    })
+  }
+
+  return {
+    user: wallet,
+    referrer: normalizeWallet(referrer) || ethers.ZeroAddress,
+    txHash: null,
+    blockNumber: null,
+    timestamp: null,
+    source: 'contract',
+  }
+}
+
+async function findRegistrationAccess(address) {
+  const indexed = await findRegistrationEvent(address)
+  if (indexed) {
+    return {
+      ...indexed,
+      source: 'indexed',
+    }
+  }
+
+  return readLiveRegistration(address)
+}
+
 async function getCodeByWallet(walletAddress) {
   const wallet = normalizeWallet(walletAddress)
 
@@ -51,7 +92,7 @@ export const getOrCreateReferralCode = async (req, res) => {
   }
 
   try {
-    const registrationEvent = await findRegistrationEvent(wallet)
+    const registrationEvent = await findRegistrationAccess(wallet)
 
     if (!registrationEvent) {
       return res.status(403).json({
@@ -82,11 +123,21 @@ export const getOrCreateReferralCode = async (req, res) => {
         })
       }
 
-      referral = await ReferralCode.create({
-        shortCode,
-        walletAddress: wallet,
-        isActive: true,
-      })
+      try {
+        referral = await ReferralCode.create({
+          shortCode,
+          walletAddress: wallet,
+          isActive: true,
+        })
+      } catch (error) {
+        if (error?.code !== 11000) {
+          throw error
+        }
+
+        referral = await ReferralCode.findOne({
+          walletAddress: wallet,
+        })
+      }
     }
 
     const referredByWallet = normalizeWallet(registrationEvent.referrer)
@@ -104,6 +155,7 @@ export const getOrCreateReferralCode = async (req, res) => {
         txHash: registrationEvent.txHash,
         blockNumber: registrationEvent.blockNumber,
         timestamp: registrationEvent.timestamp,
+        source: registrationEvent.source,
       },
     })
   } catch (error) {
@@ -160,7 +212,7 @@ export const resolveReferralCode = async (req, res) => {
       })
     }
 
-    const registrationEvent = await findRegistrationEvent(referral.walletAddress)
+    const registrationEvent = await findRegistrationAccess(referral.walletAddress)
 
     if (!registrationEvent) {
       return res.status(403).json({

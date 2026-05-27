@@ -7,6 +7,8 @@ import IndexedEscrowEvent from '../models/IndexedEscrowEvent.js';
 import IndexedActivationSummary from '../models/IndexedActivationSummary.js';
 import IndexedFinancialEvent from '../models/IndexedFinancialEvent.js';
 import IndexerGap from '../models/IndexerGap.js';
+import ReferralCode from '../models/ReferralCode.js';
+import { generateShortCode } from '../utils/shortCodeGenerator.js';
 import {
   createAdminIndexerWarning,
   notifyFromIndexedEscrowEvent,
@@ -126,6 +128,39 @@ function rawArgs(args = {}) {
       typeof v === 'bigint' ? v.toString() : v,
     ])
   );
+}
+
+async function ensureReferralCodeForWallet(walletAddress) {
+  const wallet = toLower(walletAddress || '');
+  if (!wallet) return;
+
+  const existing = await ReferralCode.findOne({ walletAddress: wallet }).select('_id').lean();
+  if (existing) return;
+
+  let shortCode;
+  let attempts = 0;
+  const maxAttempts = 20;
+
+  do {
+    shortCode = generateShortCode();
+    attempts += 1;
+  } while (await ReferralCode.exists({ shortCode }) && attempts < maxAttempts);
+
+  if (attempts >= maxAttempts) {
+    throw new Error(`[REFERRAL_CODE_GENERATION_FAILED] ${wallet}`);
+  }
+
+  try {
+    await ReferralCode.create({
+      shortCode,
+      walletAddress: wallet,
+      isActive: true,
+    });
+  } catch (error) {
+    if (Number(error?.code) !== 11000) {
+      throw error;
+    }
+  }
 }
 
 const blockCache = new Map();
@@ -503,8 +538,8 @@ async function markGapResolved(gapKey) {
 
   createAdminIndexerWarning({
     gapKey,
-    status: 'failed',
-    error: buildErrorMessage(error),
+    status: 'resolved',
+    error: '',
   }).catch((alertError) => {
     console.error('[ADMIN_GAP_REPLAY_ALERT_FAILED]', alertError?.message || String(alertError));
   });
@@ -596,6 +631,7 @@ export async function saveReceiptLog(chainId, log, parsed, block) {
 
 export async function saveRegistrationLog(chainId, contractAddress, log, parsed, block) {
   const args = parsed.args || {};
+  const user = toLower(args.user || '');
 
   await IndexedRegistrationEvent.updateOne(
     { txHash: toLower(log.transactionHash), logIndex: log.index },
@@ -608,7 +644,7 @@ export async function saveRegistrationLog(chainId, contractAddress, log, parsed,
         blockHash: toLower(log.blockHash),
         contractAddress: toLower(contractAddress),
         eventName: parsed.name,
-        user: toLower(args.user || ''),
+        user,
         referrer: toLower(args.referrer || ''),
         level: Number(args.level || 0),
         timestamp: toDateFromSeconds(block.timestamp),
@@ -623,11 +659,24 @@ export async function saveRegistrationLog(chainId, contractAddress, log, parsed,
     { upsert: true }
   );
 
+  if (parsed.name === 'Registered') {
+    try {
+      await ensureReferralCodeForWallet(user);
+    } catch (error) {
+      console.error('[REFERRAL_CODE_CREATE_FAILED]', {
+        user,
+        txHash: toLower(log.transactionHash),
+        logIndex: log.index,
+        message: buildErrorMessage(error),
+      });
+    }
+  }
+
   logDebug('[SAVED_REGISTRATION_EVENT]', {
     txHash: toLower(log.transactionHash),
     logIndex: log.index,
     eventName: parsed.name,
-    user: toLower(args.user || ''),
+    user,
     referrer: toLower(args.referrer || ''),
     level: Number(args.level || 0),
     blockNumber: log.blockNumber,
