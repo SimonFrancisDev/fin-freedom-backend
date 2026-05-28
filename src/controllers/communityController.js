@@ -2,6 +2,7 @@ import {
   fetchCommunitySummary,
   fetchCommunityAnnouncements,
   fetchCommunityEvents,
+  fetchFounderDistributionSummary,
   fetchCommunitySocialLinks,
   fetchCommunityResources,
 } from '../services/read/communityQueryService.js';
@@ -43,6 +44,21 @@ export async function getCommunityAnnouncements(req, res, next) {
 export async function getCommunityEvents(req, res, next) {
   try {
     const data = await fetchCommunityEvents();
+
+    setApiCacheHeaders(res, 15);
+
+    res.status(200).json({
+      ok: true,
+      data,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getFounderDistribution(req, res, next) {
+  try {
+    const data = await fetchFounderDistributionSummary();
 
     setApiCacheHeaders(res, 15);
 

@@ -104,6 +104,12 @@ function formatUsdt(value) {
   }
 }
 
+function formatRatioPercent(value) {
+  const ratio = Number(value || 0);
+  if (!Number.isFinite(ratio)) return '0.00';
+  return (ratio / 100).toFixed(2);
+}
+
 function getContractAddress(contract) {
   return contract?.target || contract?.address || '';
 }
@@ -392,6 +398,84 @@ async function fetchCommunityFinancialMetrics(contracts) {
     operationsReceivedRaw,
     totalProtocolDistributedValueRaw,
   };
+}
+
+export async function fetchFounderDistributionSummary() {
+  return cached('community:founder-distribution', async () => {
+    const contracts = getContracts();
+    const [walletsRaw, ratiosRaw] = await safeRpcCall(() =>
+      contracts.levelManager.getFounderWallets()
+    );
+
+    const wallets = Array.from(walletsRaw || []).map((wallet) =>
+      String(wallet || '').toLowerCase()
+    );
+    const ratios = Array.from(ratiosRaw || []).map((ratio) =>
+      String(ratio || '0')
+    );
+
+    const rows = await IndexedFinancialEvent.find({
+      eventName: 'FounderDistributionDetailed',
+      founderWallet: { $in: wallets },
+    })
+      .select('founderWallet founderAmount blockNumber timestamp txHash')
+      .lean();
+
+    const byWallet = new Map();
+    let totalPaidRaw = 0n;
+
+    for (const row of rows) {
+      const wallet = String(row.founderWallet || '').toLowerCase();
+      const amount = toBigIntSafe(row.founderAmount);
+      const current = byWallet.get(wallet) || {
+        totalPaidRaw: 0n,
+        payoutEventCount: 0,
+        latestPayoutBlock: 0,
+        latestPayoutAt: null,
+        latestPayoutTxHash: '',
+      };
+
+      current.totalPaidRaw += amount;
+      current.payoutEventCount += 1;
+
+      if (Number(row.blockNumber || 0) > current.latestPayoutBlock) {
+        current.latestPayoutBlock = Number(row.blockNumber || 0);
+        current.latestPayoutAt = row.timestamp || null;
+        current.latestPayoutTxHash = row.txHash || '';
+      }
+
+      byWallet.set(wallet, current);
+      totalPaidRaw += amount;
+    }
+
+    return {
+      totalPaid: formatUsdt(totalPaidRaw),
+      totalPaidRaw: totalPaidRaw.toString(),
+      founders: wallets.map((wallet, index) => {
+        const paid = byWallet.get(wallet) || {
+          totalPaidRaw: 0n,
+          payoutEventCount: 0,
+          latestPayoutBlock: 0,
+          latestPayoutAt: null,
+          latestPayoutTxHash: '',
+        };
+        const ratioBps = ratios[index] || '0';
+
+        return {
+          wallet,
+          ratioBps,
+          ratioPercent: formatRatioPercent(ratioBps),
+          totalPaid: formatUsdt(paid.totalPaidRaw),
+          totalPaidRaw: paid.totalPaidRaw.toString(),
+          payoutEventCount: paid.payoutEventCount,
+          latestPayoutBlock: paid.latestPayoutBlock,
+          latestPayoutAt: paid.latestPayoutAt,
+          latestPayoutTxHash: paid.latestPayoutTxHash,
+        };
+      }),
+      source: 'indexed_founder_distribution_events',
+    };
+  });
 }
 
 export async function fetchCommunitySummary() {

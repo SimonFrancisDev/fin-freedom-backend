@@ -3,6 +3,7 @@ import {
   getCommunitySummary,
   getCommunityAnnouncements,
   getCommunityEvents,
+  getFounderDistribution,
   getCommunitySocialLinks,
   getCommunityResources,
 } from '../controllers/communityController.js';
@@ -27,6 +28,7 @@ const router = express.Router();
 router.get('/summary', getCommunitySummary);
 router.get('/announcements', getCommunityAnnouncements);
 router.get('/events', getCommunityEvents);
+router.get('/founders/distribution', getFounderDistribution);
 router.get('/social-links', getCommunitySocialLinks);
 router.get('/resources', getCommunityResources);
 
