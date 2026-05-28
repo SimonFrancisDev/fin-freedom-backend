@@ -250,6 +250,13 @@ const env = {
     3600000,
     600000
   ),
+  PROFILE_SESSION_TTL_MS: clamp(
+    optionalInteger('PROFILE_SESSION_TTL_MS', 1800000),
+    60000,
+    86400000,
+    1800000
+  ),
+  PROFILE_SESSION_SECRET: optional('PROFILE_SESSION_SECRET'),
 
   TELEGRAM_ENABLED: optionalBoolean('TELEGRAM_ENABLED', false),
   TELEGRAM_BOT_TOKEN: optional('TELEGRAM_BOT_TOKEN'),
