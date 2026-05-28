@@ -2,6 +2,10 @@ import {
   fetchReceiptsByAddress,
   fetchReceiptsByActivationId,
 } from '../services/read/receiptQueryService.js';
+import {
+  buildLockedProfileResponse,
+  canReadLockedProfile,
+} from '../services/profilePrivacyService.js';
 
 function setApiCacheHeaders(res, maxAgeSeconds = 15) {
   res.set('Cache-Control', `public, max-age=${maxAgeSeconds}, stale-while-revalidate=${maxAgeSeconds}`);
@@ -10,6 +14,18 @@ function setApiCacheHeaders(res, maxAgeSeconds = 15) {
 export async function getReceiptsByAddress(req, res, next) {
   try {
     const { address } = req.params;
+    const access = await canReadLockedProfile(address, req);
+    if (!access.allowed) {
+      res.set('Cache-Control', 'no-store');
+      res.status(200).json({
+        ok: true,
+        ...buildLockedProfileResponse(address),
+        receipts: [],
+        totals: {},
+      });
+      return;
+    }
+
     const data = await fetchReceiptsByAddress(address, req.query);
 
     setApiCacheHeaders(res, 15);

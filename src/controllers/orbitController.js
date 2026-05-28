@@ -5,6 +5,10 @@ import {
   fetchOrbitCycleSnapshot,
   fetchUserGlobalSummary,
 } from '../services/read/orbitQueryService.js';
+import {
+  buildLockedProfileResponse,
+  canReadLockedProfile,
+} from '../services/profilePrivacyService.js';
 
 function setApiCacheHeaders(res, maxAgeSeconds = 5) {
   res.set(
@@ -16,6 +20,18 @@ function setApiCacheHeaders(res, maxAgeSeconds = 5) {
 function setResponseMetaHeaders(res, startedAt) {
   const durationMs = Date.now() - startedAt;
   res.set('X-Response-Time-Ms', String(durationMs));
+}
+
+async function enforceProfilePrivacy(req, res) {
+  const access = await canReadLockedProfile(req.params.address, req);
+  if (access.allowed) return false;
+
+  res.set('Cache-Control', 'no-store');
+  res.status(200).json({
+    ok: true,
+    ...buildLockedProfileResponse(req.params.address),
+  });
+  return true;
 }
 
 function toIntegerParam(value, fieldName) {
@@ -34,6 +50,8 @@ export async function getOrbitLevels(req, res, next) {
   const startedAt = Date.now();
 
   try {
+    if (await enforceProfilePrivacy(req, res)) return;
+
     const { address } = req.params;
     const data = await fetchOrbitLevels(address);
 
@@ -57,6 +75,8 @@ export async function getOrbitLevelSnapshot(req, res, next) {
   const startedAt = Date.now();
 
   try {
+    if (await enforceProfilePrivacy(req, res)) return;
+
     const { address, level } = req.params;
 
     const data = await fetchOrbitLevelSnapshot(
@@ -84,6 +104,8 @@ export async function getOrbitPositionDetails(req, res, next) {
   const startedAt = Date.now();
 
   try {
+    if (await enforceProfilePrivacy(req, res)) return;
+
     const { address, level, position } = req.params;
 
     const data = await fetchOrbitPositionDetails(
@@ -112,6 +134,8 @@ export async function getOrbitCycleSnapshot(req, res, next) {
   const startedAt = Date.now();
 
   try {
+    if (await enforceProfilePrivacy(req, res)) return;
+
     const { address, level, cycleNumber } = req.params;
 
     const data = await fetchOrbitCycleSnapshot(
@@ -142,6 +166,8 @@ export async function getOrbitCycleSnapshot(req, res, next) {
 export async function getUserSummary(req, res, next) {
   const startedAt = Date.now();
   try {
+    if (await enforceProfilePrivacy(req, res)) return;
+
     const { address } = req.params;
     
     // We will build this service function in the next step

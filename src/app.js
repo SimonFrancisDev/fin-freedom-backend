@@ -17,6 +17,7 @@ import referralRoutes from './routes/referralRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import adminNotificationRoutes from './routes/adminNotificationRoutes.js';
 import telegramRoutes from './routes/telegramRoutes.js';
+import profilePrivacyRoutes from './routes/profilePrivacyRoutes.js';
 
 const app = express();
 
@@ -105,6 +106,7 @@ app.use('/api/referral', referralRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/admin/notifications', adminNotificationRoutes);
 app.use('/api/telegram', telegramRoutes);
+app.use('/api/profile-privacy', profilePrivacyRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
