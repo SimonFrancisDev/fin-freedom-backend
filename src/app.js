@@ -60,7 +60,7 @@ app.use(
     },
     credentials: false,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', env.ADMIN_API_HEADER || 'x-admin-key'],
+    allowedHeaders: ['Content-Type', 'Authorization', env.ADMIN_API_HEADER || 'x-admin-key'],
   })
 );
 
