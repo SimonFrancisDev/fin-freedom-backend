@@ -86,6 +86,14 @@ function getBearerToken(req) {
   return match ? match[1].trim() : '';
 }
 
+function getViewerAddress(req) {
+  return normalizeWalletAddress(
+    req?.headers?.['x-profile-viewer-address'] ||
+      req?.query?.viewer ||
+      req?.query?.viewerAddress
+  );
+}
+
 export function verifyProfileSessionToken(token) {
   if (!token || typeof token !== 'string') return null;
 
@@ -160,6 +168,11 @@ export async function canReadLockedProfile(address, req = null) {
 
   if (!privacy.isLocked) {
     return { allowed: true, privacy };
+  }
+
+  const viewerAddress = getViewerAddress(req);
+  if (viewerAddress === target) {
+    return { allowed: true, privacy, ownerView: true };
   }
 
   const session = getProfileSessionFromRequest(req);
