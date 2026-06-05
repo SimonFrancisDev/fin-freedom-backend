@@ -12,6 +12,53 @@ function normalizeWallet(address = '') {
   return String(address || '').trim().toLowerCase()
 }
 
+async function getSystemWallets() {
+  const wallets = new Set([ethers.ZeroAddress.toLowerCase()])
+  const contracts = getContracts()
+  const sources = [
+    ['registration', contracts?.registration],
+    ['levelManager', contracts?.levelManager],
+  ]
+
+  for (const [source, contract] of sources) {
+    if (typeof contract?.id1Wallet !== 'function') continue
+
+    try {
+      const id1Wallet = normalizeWallet(await contract.id1Wallet())
+      if (ethers.isAddress(id1Wallet)) wallets.add(id1Wallet)
+    } catch (error) {
+      console.warn('System referral wallet lookup failed:', {
+        source,
+        message: error?.message || String(error),
+      })
+    }
+  }
+
+  return wallets
+}
+
+async function isSystemWallet(address) {
+  const wallet = normalizeWallet(address)
+  if (!wallet || !ethers.isAddress(wallet)) return false
+  const systemWallets = await getSystemWallets()
+  return systemWallets.has(wallet)
+}
+
+function buildSystemReferralPayload(walletAddress = ethers.ZeroAddress) {
+  const wallet = normalizeWallet(walletAddress)
+
+  return {
+    success: true,
+    shortCode: SYSTEM_REFERRER_CODE,
+    referralId: SYSTEM_REFERRER_CODE,
+    fullLink: `${REFERRAL_BASE_URL}/${SYSTEM_REFERRER_CODE}`,
+    walletAddress: ethers.isAddress(wallet) ? wallet : ethers.ZeroAddress,
+    referredByWallet: ethers.ZeroAddress,
+    referredByCode: SYSTEM_REFERRER_CODE,
+    system: true,
+  }
+}
+
 async function findRegistrationEvent(address) {
   const wallet = normalizeWallet(address)
   if (!ethers.isAddress(wallet)) return null
@@ -68,7 +115,7 @@ async function findRegistrationAccess(address) {
 async function getCodeByWallet(walletAddress) {
   const wallet = normalizeWallet(walletAddress)
 
-  if (!wallet || wallet === ethers.ZeroAddress.toLowerCase()) {
+  if (!wallet || await isSystemWallet(wallet)) {
     return SYSTEM_REFERRER_CODE
   }
 
@@ -92,6 +139,10 @@ export const getOrCreateReferralCode = async (req, res) => {
   }
 
   try {
+    if (await isSystemWallet(wallet)) {
+      return res.json(buildSystemReferralPayload(wallet))
+    }
+
     const registrationEvent = await findRegistrationAccess(wallet)
 
     if (!registrationEvent) {
@@ -180,8 +231,8 @@ export const resolveReferralCode = async (req, res) => {
   try {
     const normalizedCode = String(shortCode).trim().toUpperCase()
     if (SYSTEM_REFERRER_ALIASES.has(normalizedCode)) {
-      const contracts = getContracts()
-      const id1Wallet = await contracts.registration.id1Wallet()
+      const systemWallets = await getSystemWallets()
+      const id1Wallet = [...systemWallets].find((wallet) => wallet !== ethers.ZeroAddress.toLowerCase())
 
       if (!id1Wallet || id1Wallet === ethers.ZeroAddress) {
         return res.status(503).json({
@@ -191,13 +242,7 @@ export const resolveReferralCode = async (req, res) => {
         })
       }
 
-      return res.json({
-        success: true,
-        walletAddress: id1Wallet,
-        shortCode: SYSTEM_REFERRER_CODE,
-        referralId: SYSTEM_REFERRER_CODE,
-        system: true,
-      })
+      return res.json(buildSystemReferralPayload(id1Wallet))
     }
 
     const referral = await ReferralCode.findOne({

@@ -15,6 +15,7 @@ import { buildOrbitLevelSnapshot } from '../snapshots/orbitLevelSnapshotBuilder.
 import { buildOrbitPositionSnapshot } from '../snapshots/orbitPositionSnapshotBuilder.js';
 import { buildOrbitCycleSnapshot } from '../snapshots/orbitCycleSnapshotBuilder.js';
 import { enrichOrbitLevelSnapshot } from '../snapshots/orbitLevelSnapshotEnricher.js';
+import { enrichWalletIdentities } from './identityEnrichmentService.js';
 
 import env from '../../config/env.js';
 
@@ -1438,7 +1439,7 @@ export const fetchOrbitLevelSnapshot = safeApiResponse(async function fetchOrbit
         warmCycleSnapshotsInBackground(normalizedAddress, level, totalCycles);
       }
 
-      return {
+      const enriched = await enrichWalletIdentities({
         address: normalizedAddress,
         level,
         orbitType,
@@ -1447,6 +1448,11 @@ export const fetchOrbitLevelSnapshot = safeApiResponse(async function fetchOrbit
         linePaymentCounts: snapshot.linePaymentCounts || {},
         lockedForNextLevel: snapshot.lockedForNextLevel || '0',
         positions: snapshot.positions || [],
+      });
+
+      return {
+        ...enriched.data,
+        identities: enriched.identities,
       };
     },
     5000
@@ -1560,7 +1566,7 @@ export const fetchOrbitPositionDetails = safeApiResponse(async function fetchOrb
         );
       }
 
-      return {
+      const enriched = await enrichWalletIdentities({
         address: normalizedAddress,
         level,
         position,
@@ -1582,6 +1588,11 @@ export const fetchOrbitPositionDetails = safeApiResponse(async function fetchOrb
         indexedReceipts: snapshot.indexedReceipts || [],
         indexedEvents: snapshot.indexedEvents || [],
         ruleView: snapshot.ruleView || null,
+      });
+
+      return {
+        ...enriched.data,
+        identities: enriched.identities,
       };
     },
     5000
