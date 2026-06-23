@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import { getContracts } from '../../blockchain/contracts.js';
 import { safeRpcCall } from '../../blockchain/provider.js';
+import env from '../../config/env.js';
 import CommunityAnnouncement from '../../models/CommunityAnnouncement.js';
 import CommunityEvent from '../../models/CommunityEvent.js';
 import CommunitySocialLink from '../../models/CommunitySocialLink.js';
@@ -53,16 +54,48 @@ async function fetchTreasuryBreakdown(contracts) {
       levelManager.operationsWallet()
     )
 
-    const [nftRaw, opsRaw] = await Promise.all([
+    const nftVaultAddress = ethers.isAddress(env.NFT_POOL_VAULT_ADDRESS || '')
+      ? env.NFT_POOL_VAULT_ADDRESS
+      : ''
+    const opsVaultAddress = ethers.isAddress(env.OPERATIONS_VAULT_ADDRESS || '')
+      ? env.OPERATIONS_VAULT_ADDRESS
+      : ''
+
+    const [nftRaw, opsRaw, nftVaultRaw, opsVaultRaw] = await Promise.all([
       safeBalanceOf(usdt, nftPoolAddress),
       safeBalanceOf(usdt, opsAddress),
+      nftVaultAddress ? safeBalanceOf(usdt, nftVaultAddress) : 0n,
+      opsVaultAddress ? safeBalanceOf(usdt, opsVaultAddress) : 0n,
     ])
 
+    const nftCurrentRaw =
+      nftVaultAddress &&
+      String(nftVaultAddress).toLowerCase() !== String(nftPoolAddress).toLowerCase()
+        ? BigInt(nftRaw || 0) + BigInt(nftVaultRaw || 0)
+        : BigInt(nftRaw || 0)
+    const opsCurrentRaw =
+      opsVaultAddress &&
+      String(opsVaultAddress).toLowerCase() !== String(opsAddress).toLowerCase()
+        ? BigInt(opsRaw || 0) + BigInt(opsVaultRaw || 0)
+        : BigInt(opsRaw || 0)
+
     return {
-      nftPool: formatUsdt(nftRaw),
-      operations: formatUsdt(opsRaw),
-      nftPoolRaw: String(nftRaw || 0),
-      operationsRaw: String(opsRaw || 0),
+      nftPool: formatUsdt(nftCurrentRaw),
+      operations: formatUsdt(opsCurrentRaw),
+      nftPoolRaw: String(nftCurrentRaw),
+      operationsRaw: String(opsCurrentRaw),
+      nftPoolRecipient: nftPoolAddress,
+      operationsRecipient: opsAddress,
+      nftPoolRecipientBalance: formatUsdt(nftRaw),
+      operationsRecipientBalance: formatUsdt(opsRaw),
+      nftPoolRecipientRaw: String(nftRaw || 0),
+      operationsRecipientRaw: String(opsRaw || 0),
+      nftPoolVault: nftVaultAddress,
+      operationsVault: opsVaultAddress,
+      nftPoolVaultBalance: formatUsdt(nftVaultRaw),
+      operationsVaultBalance: formatUsdt(opsVaultRaw),
+      nftPoolVaultRaw: String(nftVaultRaw || 0),
+      operationsVaultRaw: String(opsVaultRaw || 0),
     }
   } catch {
     return {
@@ -136,9 +169,10 @@ async function fetchTotalParticipants(contracts) {
   }
 
   try {
-    return await IndexedRegistrationEvent.countDocuments({
+    const registeredUsers = await IndexedRegistrationEvent.countDocuments({
       eventName: 'Registered',
     });
+    return registeredUsers > 0 ? registeredUsers + 1 : registeredUsers;
   } catch {
     return 0;
   }
@@ -551,15 +585,27 @@ export async function fetchCommunitySummary() {
         operationsUtilized: formatUsdt(operationsUtilizedRaw),
         nftPoolLiveBalance: treasury?.nftPool || '0.00',
         operationsLiveBalance: treasury?.operations || '0.00',
+        nftPoolRecipient: treasury?.nftPoolRecipient || '',
+        operationsRecipient: treasury?.operationsRecipient || '',
+        nftPoolRecipientBalance: treasury?.nftPoolRecipientBalance || '0.00',
+        operationsRecipientBalance: treasury?.operationsRecipientBalance || '0.00',
+        nftPoolVault: treasury?.nftPoolVault || '',
+        operationsVault: treasury?.operationsVault || '',
+        nftPoolVaultBalance: treasury?.nftPoolVaultBalance || '0.00',
+        operationsVaultBalance: treasury?.operationsVaultBalance || '0.00',
         nftRewardPool: {
           totalInflow: formatUsdt(financialMetrics.nftPoolReceivedRaw),
           totalDistributed: formatUsdt(nftPoolDistributedRaw),
           currentBalance: treasury?.nftPool || '0.00',
+          recipientBalance: treasury?.nftPoolRecipientBalance || '0.00',
+          vaultBalance: treasury?.nftPoolVaultBalance || '0.00',
         },
         devOperations: {
           totalInflow: formatUsdt(financialMetrics.operationsReceivedRaw),
           totalUtilized: formatUsdt(operationsUtilizedRaw),
           currentBalance: treasury?.operations || '0.00',
+          recipientBalance: treasury?.operationsRecipientBalance || '0.00',
+          vaultBalance: treasury?.operationsVaultBalance || '0.00',
         },
         recycleAllocated: formatUsdt(financialMetrics.recycleAllocatedRaw),
         recyclePaidLiquid: formatUsdt(financialMetrics.recyclePaidLiquidRaw),

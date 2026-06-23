@@ -1,4 +1,6 @@
 import { ethers } from 'ethers';
+import { getContracts } from '../../blockchain/contracts.js';
+import { safeRpcCall } from '../../blockchain/provider.js';
 import IndexedReceipt from '../../models/IndexedReceipt.js';
 import IndexedRegistrationEvent from '../../models/IndexedRegistrationEvent.js';
 
@@ -197,7 +199,7 @@ export async function fetchCommunityGrowth(days = 14) {
 
 export async function fetchCommunityGlobalStats() {
   return cached('community-analytics:global-stats', async () => {
-    const [totalUsers, receiptRows] = await Promise.all([
+    const [registeredUsers, receiptRows] = await Promise.all([
       IndexedRegistrationEvent.countDocuments({
         eventName: 'Registered',
       }),
@@ -206,12 +208,26 @@ export async function fetchCommunityGlobalStats() {
         .lean(),
     ]);
 
+    let totalParticipants = registeredUsers > 0 ? registeredUsers + 1 : registeredUsers;
+    try {
+      const contracts = getContracts();
+      const totalParticipantsRaw = await safeRpcCall(() =>
+        contracts.registration.totalParticipants()
+      );
+      const count = Number(totalParticipantsRaw || 0);
+      if (count > 0) totalParticipants = count;
+    } catch {
+      // Indexed fallback above already includes ID1 when registered users exist.
+    }
+
     const totalLiquidRaw = sumRawField(receiptRows, 'liquidPaid');
     const totalGrossRaw = sumRawField(receiptRows, 'grossAmount');
     const totalEscrowRaw = sumRawField(receiptRows, 'escrowLocked');
 
     return {
-      totalUsers,
+      totalUsers: totalParticipants,
+      totalParticipants,
+      registeredUsers,
       totalReceipts: receiptRows.length,
       totalLiquid: formatRawUsdt(totalLiquidRaw),
       totalGross: formatRawUsdt(totalGrossRaw),
