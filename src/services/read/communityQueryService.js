@@ -15,6 +15,9 @@ import IndexedFinancialEvent from '../../models/IndexedFinancialEvent.js';
 const CACHE_TTL_MS = 15000;
 const cache = new Map();
 const inflight = new Map();
+const POLYGON_MAINNET_CHAIN_ID = 137;
+const POLYGON_USDT_ADDRESS = '0xc2132D05D31c914a87C6611C10748AEb04B58e8F';
+const ERC20_BALANCE_ABI = ['function balanceOf(address) view returns (uint256)'];
 
 function getCache(key) {
   const hit = cache.get(key);
@@ -35,7 +38,10 @@ function setCache(key, value, ttlMs = CACHE_TTL_MS) {
 
 
 async function fetchTreasuryBreakdown(contracts) {
-  const usdt = contracts?.usdt
+  const usdt =
+    Number(env.CHAIN_ID) === POLYGON_MAINNET_CHAIN_ID && contracts?.provider
+      ? new ethers.Contract(POLYGON_USDT_ADDRESS, ERC20_BALANCE_ABI, contracts.provider)
+      : contracts?.usdt
   const levelManager = contracts?.levelManager
 
   if (!usdt) {
