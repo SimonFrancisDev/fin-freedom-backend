@@ -38,72 +38,61 @@ async function fetchTreasuryBreakdown(contracts) {
   const usdt = contracts?.usdt
   const levelManager = contracts?.levelManager
 
-  if (!usdt || !levelManager) {
+  if (!usdt) {
     return {
       nftPool: '0.00',
       operations: '0.00',
     }
   }
 
-  try {
-    const nftPoolAddress = await safeRpcCall(() =>
-      levelManager.nftPool()
-    )
+  const nftPoolAddress = levelManager?.nftPool
+    ? await safeRpcCall(() => levelManager.nftPool()).catch(() => '')
+    : ''
 
-    const opsAddress = await safeRpcCall(() =>
-      levelManager.operationsWallet()
-    )
+  const opsAddress = levelManager?.operationsWallet
+    ? await safeRpcCall(() => levelManager.operationsWallet()).catch(() => '')
+    : ''
 
-    const nftVaultAddress = ethers.isAddress(env.NFT_POOL_VAULT_ADDRESS || '')
-      ? env.NFT_POOL_VAULT_ADDRESS
-      : ''
-    const opsVaultAddress = ethers.isAddress(env.OPERATIONS_VAULT_ADDRESS || '')
-      ? env.OPERATIONS_VAULT_ADDRESS
-      : ''
+  const nftVaultCandidate = env.NFT_POOL_VAULT_ADDRESS || env.NFT_POOL_ADDRESS || ''
+  const opsVaultCandidate = env.OPERATIONS_VAULT_ADDRESS || env.OPERATIONS_WALLET_ADDRESS || ''
+  const nftVaultAddress = ethers.isAddress(nftVaultCandidate) ? nftVaultCandidate : ''
+  const opsVaultAddress = ethers.isAddress(opsVaultCandidate) ? opsVaultCandidate : ''
 
-    const [nftRaw, opsRaw, nftVaultRaw, opsVaultRaw] = await Promise.all([
-      safeBalanceOf(usdt, nftPoolAddress),
-      safeBalanceOf(usdt, opsAddress),
-      nftVaultAddress ? safeBalanceOf(usdt, nftVaultAddress) : 0n,
-      opsVaultAddress ? safeBalanceOf(usdt, opsVaultAddress) : 0n,
-    ])
+  const [nftRaw, opsRaw, nftVaultRaw, opsVaultRaw] = await Promise.all([
+    safeBalanceOf(usdt, nftPoolAddress),
+    safeBalanceOf(usdt, opsAddress),
+    nftVaultAddress ? safeBalanceOf(usdt, nftVaultAddress) : 0n,
+    opsVaultAddress ? safeBalanceOf(usdt, opsVaultAddress) : 0n,
+  ])
 
-    const nftCurrentRaw =
-      nftVaultAddress &&
-      String(nftVaultAddress).toLowerCase() !== String(nftPoolAddress).toLowerCase()
-        ? BigInt(nftRaw || 0) + BigInt(nftVaultRaw || 0)
-        : BigInt(nftRaw || 0)
-    const opsCurrentRaw =
-      opsVaultAddress &&
-      String(opsVaultAddress).toLowerCase() !== String(opsAddress).toLowerCase()
-        ? BigInt(opsRaw || 0) + BigInt(opsVaultRaw || 0)
-        : BigInt(opsRaw || 0)
+  const nftCurrentRaw =
+    nftVaultAddress &&
+    String(nftVaultAddress).toLowerCase() !== String(nftPoolAddress).toLowerCase()
+      ? BigInt(nftRaw || 0) + BigInt(nftVaultRaw || 0)
+      : BigInt(nftRaw || 0) || BigInt(nftVaultRaw || 0)
+  const opsCurrentRaw =
+    opsVaultAddress &&
+    String(opsVaultAddress).toLowerCase() !== String(opsAddress).toLowerCase()
+      ? BigInt(opsRaw || 0) + BigInt(opsVaultRaw || 0)
+      : BigInt(opsRaw || 0) || BigInt(opsVaultRaw || 0)
 
-    return {
-      nftPool: formatUsdt(nftCurrentRaw),
-      operations: formatUsdt(opsCurrentRaw),
-      nftPoolRaw: String(nftCurrentRaw),
-      operationsRaw: String(opsCurrentRaw),
-      nftPoolRecipient: nftPoolAddress,
-      operationsRecipient: opsAddress,
-      nftPoolRecipientBalance: formatUsdt(nftRaw),
-      operationsRecipientBalance: formatUsdt(opsRaw),
-      nftPoolRecipientRaw: String(nftRaw || 0),
-      operationsRecipientRaw: String(opsRaw || 0),
-      nftPoolVault: nftVaultAddress,
-      operationsVault: opsVaultAddress,
-      nftPoolVaultBalance: formatUsdt(nftVaultRaw),
-      operationsVaultBalance: formatUsdt(opsVaultRaw),
-      nftPoolVaultRaw: String(nftVaultRaw || 0),
-      operationsVaultRaw: String(opsVaultRaw || 0),
-    }
-  } catch {
-    return {
-      nftPool: '0.00',
-      operations: '0.00',
-      nftPoolRaw: '0',
-      operationsRaw: '0',
-    }
+  return {
+    nftPool: formatUsdt(nftCurrentRaw),
+    operations: formatUsdt(opsCurrentRaw),
+    nftPoolRaw: String(nftCurrentRaw),
+    operationsRaw: String(opsCurrentRaw),
+    nftPoolRecipient: nftPoolAddress,
+    operationsRecipient: opsAddress,
+    nftPoolRecipientBalance: formatUsdt(nftRaw),
+    operationsRecipientBalance: formatUsdt(opsRaw),
+    nftPoolRecipientRaw: String(nftRaw || 0),
+    operationsRecipientRaw: String(opsRaw || 0),
+    nftPoolVault: nftVaultAddress,
+    operationsVault: opsVaultAddress,
+    nftPoolVaultBalance: formatUsdt(nftVaultRaw),
+    operationsVaultBalance: formatUsdt(opsVaultRaw),
+    nftPoolVaultRaw: String(nftVaultRaw || 0),
+    operationsVaultRaw: String(opsVaultRaw || 0),
   }
 }
 
