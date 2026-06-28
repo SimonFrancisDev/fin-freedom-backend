@@ -3,6 +3,7 @@ import { getContracts } from '../../blockchain/contracts.js';
 import { safeRpcCall } from '../../blockchain/provider.js';
 import IndexedReceipt from '../../models/IndexedReceipt.js';
 import IndexedRegistrationEvent from '../../models/IndexedRegistrationEvent.js';
+import IndexedEscrowEvent from '../../models/IndexedEscrowEvent.js';
 
 const CACHE_TTL_MS = 15000;
 const cache = new Map();
@@ -90,48 +91,79 @@ export async function fetchCommunityLeaderboard(limit = 20) {
   const cacheKey = `community-analytics:leaderboard:${safeLimit}`;
 
   return cached(cacheKey, async () => {
-    const rows = await IndexedReceipt.find({})
-      .select('receiver liquidPaid grossAmount escrowLocked')
-      .lean();
+    const [rows, escrowReleases] = await Promise.all([
+      IndexedReceipt.find({})
+        .select('receiver liquidPaid grossAmount escrowLocked')
+        .lean(),
+      IndexedEscrowEvent.find({ eventName: 'EscrowReleasedToUser' })
+        .select('user recipient amount')
+        .lean(),
+    ]);
 
     const grouped = new Map();
 
-    for (const row of rows) {
-      const receiver = String(row.receiver || '').toLowerCase();
-      if (!receiver) continue;
+    const ensureRow = (address) => {
+      const key = String(address || '').toLowerCase();
+      if (!key) return null;
 
-      if (!grouped.has(receiver)) {
-        grouped.set(receiver, {
-          address: receiver,
-          totalLiquid: 0n,
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          address: key,
+          receiptLiquid: 0n,
+          escrowReleased: 0n,
           totalGross: 0n,
           totalEscrow: 0n,
           receiptCount: 0,
+          releaseCount: 0,
         });
       }
 
-      const current = grouped.get(receiver);
-      current.totalLiquid += BigInt(row.liquidPaid || '0');
+      return grouped.get(key);
+    };
+
+    for (const row of rows) {
+      const current = ensureRow(row.receiver);
+      if (!current) continue;
+
+      current.receiptLiquid += BigInt(row.liquidPaid || '0');
       current.totalGross += BigInt(row.grossAmount || '0');
       current.totalEscrow += BigInt(row.escrowLocked || '0');
       current.receiptCount += 1;
     }
 
+    for (const row of escrowReleases) {
+      const current = ensureRow(row.recipient || row.user);
+      if (!current) continue;
+
+      current.escrowReleased += BigInt(row.amount || '0');
+      current.releaseCount += 1;
+    }
+
     const sorted = Array.from(grouped.values())
       .sort((a, b) => {
-        if (a.totalLiquid === b.totalLiquid) return b.receiptCount - a.receiptCount;
-        return a.totalLiquid > b.totalLiquid ? -1 : 1;
+        const aEarned = a.receiptLiquid + a.escrowReleased;
+        const bEarned = b.receiptLiquid + b.escrowReleased;
+        if (aEarned === bEarned) return b.receiptCount - a.receiptCount;
+        return aEarned > bEarned ? -1 : 1;
       })
       .slice(0, safeLimit);
 
-    return sorted.map((row, index) => ({
-      rank: index + 1,
-      address: row.address,
-      totalEarned: formatRawUsdt(row.totalLiquid),
-      totalGross: formatRawUsdt(row.totalGross),
-      totalEscrow: formatRawUsdt(row.totalEscrow),
-      receiptCount: row.receiptCount,
-    }));
+    return sorted.map((row, index) => {
+      const totalEarnedRaw = row.receiptLiquid + row.escrowReleased;
+
+      return {
+        rank: index + 1,
+        address: row.address,
+        totalEarned: formatRawUsdt(totalEarnedRaw),
+        receiptLiquid: formatRawUsdt(row.receiptLiquid),
+        escrowReleased: formatRawUsdt(row.escrowReleased),
+        totalGross: formatRawUsdt(row.totalGross),
+        totalEscrow: formatRawUsdt(row.totalEscrow),
+        receiptCount: row.receiptCount,
+        releaseCount: row.releaseCount,
+        financialTruthSource: 'indexed_receipts_plus_escrow_releases',
+      };
+    });
   });
 }
 
