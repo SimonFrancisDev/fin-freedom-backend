@@ -93,7 +93,7 @@ export async function fetchCommunityLeaderboard(limit = 20) {
   return cached(cacheKey, async () => {
     const [rows, escrowReleases] = await Promise.all([
       IndexedReceipt.find({})
-        .select('receiver liquidPaid grossAmount escrowLocked')
+        .select('receiver liquidPaid grossAmount escrowLocked timestamp')
         .lean(),
       IndexedEscrowEvent.find({ eventName: 'EscrowReleasedToUser' })
         .select('user recipient amount')
@@ -115,6 +115,7 @@ export async function fetchCommunityLeaderboard(limit = 20) {
           totalEscrow: 0n,
           receiptCount: 0,
           releaseCount: 0,
+          latestReceiptAt: null,
         });
       }
 
@@ -129,6 +130,11 @@ export async function fetchCommunityLeaderboard(limit = 20) {
       current.totalGross += BigInt(row.grossAmount || '0');
       current.totalEscrow += BigInt(row.escrowLocked || '0');
       current.receiptCount += 1;
+
+      const timestamp = row.timestamp ? new Date(row.timestamp) : null;
+      if (timestamp && (!current.latestReceiptAt || timestamp > current.latestReceiptAt)) {
+        current.latestReceiptAt = timestamp;
+      }
     }
 
     for (const row of escrowReleases) {
@@ -141,27 +147,31 @@ export async function fetchCommunityLeaderboard(limit = 20) {
 
     const sorted = Array.from(grouped.values())
       .sort((a, b) => {
-        const aEarned = a.receiptLiquid + a.escrowReleased;
-        const bEarned = b.receiptLiquid + b.escrowReleased;
-        if (aEarned === bEarned) return b.receiptCount - a.receiptCount;
-        return aEarned > bEarned ? -1 : 1;
+        if (a.totalGross === b.totalGross) {
+          if (a.receiptCount !== b.receiptCount) return b.receiptCount - a.receiptCount;
+          const aTime = a.latestReceiptAt?.getTime?.() || 0;
+          const bTime = b.latestReceiptAt?.getTime?.() || 0;
+          return bTime - aTime;
+        }
+        return a.totalGross > b.totalGross ? -1 : 1;
       })
       .slice(0, safeLimit);
 
     return sorted.map((row, index) => {
-      const totalEarnedRaw = row.receiptLiquid + row.escrowReleased;
-
       return {
         rank: index + 1,
         address: row.address,
-        totalEarned: formatRawUsdt(totalEarnedRaw),
+        totalEarned: formatRawUsdt(row.totalGross),
+        totalGenerated: formatRawUsdt(row.totalGross),
+        generatedGross: formatRawUsdt(row.totalGross),
         receiptLiquid: formatRawUsdt(row.receiptLiquid),
+        walletCreditedLiquid: formatRawUsdt(row.receiptLiquid + row.escrowReleased),
         escrowReleased: formatRawUsdt(row.escrowReleased),
         totalGross: formatRawUsdt(row.totalGross),
         totalEscrow: formatRawUsdt(row.totalEscrow),
         receiptCount: row.receiptCount,
         releaseCount: row.releaseCount,
-        financialTruthSource: 'indexed_receipts_plus_escrow_releases',
+        financialTruthSource: 'indexed_receipts_gross_amount',
       };
     });
   });
