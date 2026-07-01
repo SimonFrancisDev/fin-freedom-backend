@@ -34,6 +34,10 @@ const REALTIME_QUEUE_MAX = Math.max(
   REALTIME_QUEUE_CONCURRENCY,
   Number(env.REALTIME_EVENT_QUEUE_MAX) || 1000
 );
+const REALTIME_SUBSCRIPTION_DELAY_MS = Math.max(
+  0,
+  Number(env.REALTIME_SUBSCRIPTION_DELAY_MS) || 150
+);
 
 const realtimeHealth = {
   running: false,
@@ -127,6 +131,10 @@ function updateQueueHealth() {
   realtimeHealth.activeSaves = activeEventSaves;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function buildWsContract(httpContract, wsProvider) {
   if (!httpContract || !wsProvider) return null;
   return new Contract(httpContract.target, httpContract.interface, wsProvider);
@@ -184,7 +192,7 @@ function buildListenerSpecs() {
   ];
 }
 
-function attachListener(contract, eventName, label) {
+async function attachListener(contract, eventName, label) {
   if (!contract) return;
 
   const handler = (...args) => {
@@ -211,7 +219,7 @@ function attachListener(contract, eventName, label) {
     drainEventQueue();
   };
 
-  contract.on(eventName, handler);
+  await contract.on(eventName, handler);
 
   activeListeners.push({
     contract,
@@ -544,8 +552,16 @@ async function connectRealtimeProvider() {
     freedomTokenController: buildWsContract(contracts.freedomTokenController, currentWsProvider),
   };
 
-  for (const [label, eventName] of buildListenerSpecs()) {
-    attachListener(wsContracts[label], eventName, label);
+  const listenerSpecs = buildListenerSpecs();
+
+  for (let index = 0; index < listenerSpecs.length; index += 1) {
+    const [label, eventName] = listenerSpecs[index];
+    await attachListener(wsContracts[label], eventName, label);
+    realtimeHealth.listenersAttached = activeListeners.length;
+
+    if (REALTIME_SUBSCRIPTION_DELAY_MS > 0 && index < listenerSpecs.length - 1) {
+      await sleep(REALTIME_SUBSCRIPTION_DELAY_MS);
+    }
   }
 
   realtimeHealth.listenersAttached = activeListeners.length;
