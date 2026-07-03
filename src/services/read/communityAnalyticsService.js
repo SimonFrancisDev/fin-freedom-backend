@@ -4,6 +4,7 @@ import { safeRpcCall } from '../../blockchain/provider.js';
 import IndexedReceipt from '../../models/IndexedReceipt.js';
 import IndexedRegistrationEvent from '../../models/IndexedRegistrationEvent.js';
 import IndexedEscrowEvent from '../../models/IndexedEscrowEvent.js';
+import ReferralCode from '../../models/ReferralCode.js';
 
 const CACHE_TTL_MS = 15000;
 const cache = new Map();
@@ -157,10 +158,26 @@ export async function fetchCommunityLeaderboard(limit = 20) {
       })
       .slice(0, safeLimit);
 
+    const referralCodes = await ReferralCode.find({
+      walletAddress: { $in: sorted.map((row) => row.address) },
+    })
+      .select('walletAddress shortCode')
+      .lean();
+
+    const referralCodeMap = new Map(
+      referralCodes.map((row) => [
+        String(row.walletAddress || '').toLowerCase(),
+        row.shortCode,
+      ])
+    );
+
     return sorted.map((row, index) => {
+      const shortCode = referralCodeMap.get(row.address) || '';
       return {
         rank: index + 1,
         address: row.address,
+        referralId: shortCode,
+        shortCode,
         totalEarned: formatRawUsdt(row.totalGross),
         totalGenerated: formatRawUsdt(row.totalGross),
         generatedGross: formatRawUsdt(row.totalGross),
