@@ -69,16 +69,20 @@ async function startServer() {
     //   console.log('Indexer not started in this process.');
     // }
 
-    if (env.RUN_INDEXER) {
+    if (env.RUN_INDEXER && env.REALTIME_EVENT_INDEXER_ENABLED) {
       startRealtimeEventIndexer().catch((error) => {
         console.error('Realtime event indexer startup error:', error);
       });
+    } else {
+      console.log('Realtime event indexer not started in this process.');
+    }
 
+    if (env.RUN_INDEXER && env.INDEXER_POLLING_ENABLED) {
       startIndexer({ processRole: 'server' }).catch((error) => {
         console.error('Indexer startup error:', error);
       });
     } else {
-      console.log('Indexer not started in this process.');
+      console.log('Polling indexer not started in this process.');
     }
 
     startNotificationDeliveryWorker();

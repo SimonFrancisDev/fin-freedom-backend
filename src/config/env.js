@@ -110,6 +110,11 @@ const env = {
   ),
 
   RUN_INDEXER: optionalBoolean('RUN_INDEXER', false),
+  REALTIME_EVENT_INDEXER_ENABLED: optionalBoolean(
+    'REALTIME_EVENT_INDEXER_ENABLED',
+    optionalBoolean('RUN_INDEXER', false)
+  ),
+  INDEXER_POLLING_ENABLED: optionalBoolean('INDEXER_POLLING_ENABLED', true),
   BLOCKCHAIN_STARTUP_REQUIRED: optionalBoolean('BLOCKCHAIN_STARTUP_REQUIRED', false),
   BLOCKCHAIN_STARTUP_RETRY_ATTEMPTS: clamp(
     optionalInteger('BLOCKCHAIN_STARTUP_RETRY_ATTEMPTS', 1),

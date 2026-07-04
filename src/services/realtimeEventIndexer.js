@@ -1,6 +1,5 @@
 import { Contract, WebSocketProvider } from 'ethers';
 import env from '../config/env.js';
-import { safeRpcCall } from '../blockchain/provider.js';
 import { getContracts } from '../blockchain/contracts.js';
 
 import {
@@ -71,11 +70,6 @@ function buildErrorMessage(error) {
   ).trim();
 }
 
-
-async function getChainId() {
-  const network = await safeRpcCall((provider) => provider.getNetwork());
-  return Number(network.chainId);
-}
 
 function normalizeLog(eventPayload) {
   const log = eventPayload?.log || eventPayload;
@@ -231,7 +225,7 @@ async function attachListener(contract, eventName, label) {
 
 async function processRealtimeEvent({ contract, eventName, label, log }) {
   try {
-    const chainId = await getChainId();
+    const chainId = Number(env.CHAIN_ID);
     const block = await getBlockCached(log.blockNumber);
 
     if (!block) {
