@@ -23,6 +23,11 @@ const group3LevelManagerEventAbi = [
   'event SystemChargeDistributedDetailed(uint256 indexed activationId,address indexed user,uint8 indexed level,uint256 systemChargeTotal,uint256 nftPoolAmount,uint256 operationsAmount,address nftPool,address operationsWallet)',
 ];
 
+const matrixParentRegistrationEventAbi = [
+  'event CurrentMatrixParentRecorded(address indexed user,uint8 indexed level,address indexed parent)',
+  'event MatrixParentMigrationFinalized()',
+];
+
 const group3TokenControllerEventAbi = [
   'event TokenRewardEligibility(address indexed user,uint8 indexed level,bytes32 indexed rewardType,uint256 amount,bool eligible,bytes32 reasonCode)',
 ];
@@ -51,7 +56,11 @@ export function getContracts() {
     p4Orbit: new Contract(addresses.p4Orbit, p4OrbitAbi, provider),
     p12Orbit: new Contract(addresses.p12Orbit, p12OrbitAbi, provider),
     p39Orbit: new Contract(addresses.p39Orbit, p39OrbitAbi, provider),
-    registration: new Contract(addresses.registration, registrationAbi, provider),
+    registration: new Contract(
+      addresses.registration,
+      mergeAbi(registrationAbi, matrixParentRegistrationEventAbi),
+      provider
+    ),
     escrow: new Contract(addresses.escrow, escrowAbi, provider),
     usdt: new Contract(addresses.usdt, usdtAbi, provider),
 
