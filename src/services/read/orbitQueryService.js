@@ -195,8 +195,18 @@ function getSnapshotBuiltAtMs(snapshot) {
   return Number.isFinite(builtMs) ? builtMs : 0;
 }
 
-async function rebuildAndEnrichLevelSnapshot(address, level) {
-  await buildOrbitLevelSnapshot(address, level);
+async function rebuildAndEnrichLevelSnapshot(address, level, latestActivity = null) {
+  const activity = latestActivity || await getLatestIndexedActivityForLevel(
+    address,
+    level,
+    levelToOrbitType[level]
+  );
+  const freshnessBlock = Number(activity?.latestBlock || 0);
+
+  await buildOrbitLevelSnapshot(address, level, {
+    builtFromBlock: freshnessBlock,
+    freshnessBlock,
+  });
   await enrichOrbitLevelSnapshot(address, level);
 
   return OrbitLevelSnapshot.findOne({
@@ -205,8 +215,19 @@ async function rebuildAndEnrichLevelSnapshot(address, level) {
   }).lean();
 }
 
-async function rebuildPositionSnapshot(address, level, position) {
-  await buildOrbitPositionSnapshot(address, level, position);
+async function rebuildPositionSnapshot(address, level, position, latestActivity = null) {
+  const activity = latestActivity || await getLatestIndexedActivityForPosition(
+    address,
+    level,
+    levelToOrbitType[level],
+    position
+  );
+  const freshnessBlock = Number(activity?.latestBlock || 0);
+
+  await buildOrbitPositionSnapshot(address, level, position, {
+    builtFromBlock: freshnessBlock,
+    freshnessBlock,
+  });
 
   return OrbitPositionSnapshot.findOne({
     address,
@@ -215,8 +236,19 @@ async function rebuildPositionSnapshot(address, level, position) {
   }).lean();
 }
 
-async function rebuildCycleSnapshot(address, level, cycleNumber) {
-  await buildOrbitCycleSnapshot(address, level, cycleNumber);
+async function rebuildCycleSnapshot(address, level, cycleNumber, latestActivity = null) {
+  const activity = latestActivity || await getLatestIndexedActivityForCycle(
+    address,
+    level,
+    levelToOrbitType[level],
+    cycleNumber
+  );
+  const freshnessBlock = Number(activity?.latestBlock || 0);
+
+  await buildOrbitCycleSnapshot(address, level, cycleNumber, {
+    builtFromBlock: freshnessBlock,
+    freshnessBlock,
+  });
 
   return OrbitCycleSnapshot.findOne({
     address,
@@ -1411,7 +1443,8 @@ export const fetchOrbitLevelSnapshot = safeApiResponse(async function fetchOrbit
 
         snapshot = await rebuildAndEnrichLevelSnapshot(
           normalizedAddress,
-          level
+          level,
+          latestActivity
         );
 
         if (!snapshot) {
@@ -1429,7 +1462,22 @@ export const fetchOrbitLevelSnapshot = safeApiResponse(async function fetchOrbit
         }
       }
 
-      if (isIncomplete || hasNewIndexedActivity || isStale) {
+      if (!isMissing && (isIncomplete || hasNewIndexedActivity)) {
+        logDebug('[LEVEL_SNAPSHOT_OUTDATED_REBUILD]', {
+          address: normalizedAddress,
+          level,
+          isIncomplete,
+          snapshotFreshnessBlock: getSnapshotFreshnessBlock(snapshot),
+          latestIndexedBlock: Number(latestActivity?.latestBlock || 0),
+        });
+
+        snapshot = await rebuildAndEnrichLevelSnapshot(
+          normalizedAddress,
+          level,
+          latestActivity
+        );
+        responseCache.delete(cacheKey);
+      } else if (isStale) {
         refreshLevelSnapshotInBackground(normalizedAddress, level);
       }
 
@@ -1509,7 +1557,8 @@ export const fetchOrbitPositionDetails = safeApiResponse(async function fetchOrb
         snapshot = await rebuildPositionSnapshot(
           normalizedAddress,
           level,
-          position
+          position,
+          latestActivity
         );
 
         if (!snapshot) {
@@ -1540,17 +1589,21 @@ export const fetchOrbitPositionDetails = safeApiResponse(async function fetchOrb
         }
       }
 
-      if (!isMissing && hasNewIndexedActivity && !snapshot?.occupant) {
-        logDebug('[POSITION_SNAPSHOT_STALE_EMPTY_REBUILD]', {
+      if (!isMissing && (isIncomplete || hasNewIndexedActivity)) {
+        logDebug('[POSITION_SNAPSHOT_OUTDATED_REBUILD]', {
           address: normalizedAddress,
           level,
           position,
+          isIncomplete,
+          snapshotFreshnessBlock: getSnapshotFreshnessBlock(snapshot),
+          latestIndexedBlock: Number(latestActivity?.latestBlock || 0),
         });
 
         const rebuilt = await rebuildPositionSnapshot(
           normalizedAddress,
           level,
-          position
+          position,
+          latestActivity
         );
 
         if (rebuilt) {
@@ -1558,7 +1611,7 @@ export const fetchOrbitPositionDetails = safeApiResponse(async function fetchOrb
         }
       }
 
-      if (isIncomplete || hasNewIndexedActivity || isStale) {
+      if (!isMissing && !isIncomplete && !hasNewIndexedActivity && isStale) {
         refreshPositionSnapshotInBackground(
           normalizedAddress,
           level,
@@ -1663,7 +1716,8 @@ export const fetchOrbitCycleSnapshot = safeApiResponse(async function fetchOrbit
         snapshot = await rebuildCycleSnapshot(
           normalizedAddress,
           level,
-          cycleNumber
+          cycleNumber,
+          latestActivity
         );
 
         if (!snapshot) {
@@ -1680,7 +1734,24 @@ export const fetchOrbitCycleSnapshot = safeApiResponse(async function fetchOrbit
         }
       }
 
-      if (isIncomplete || hasNewIndexedActivity || isStale) {
+      if (!isMissing && (isIncomplete || hasNewIndexedActivity)) {
+        logDebug('[CYCLE_SNAPSHOT_OUTDATED_REBUILD]', {
+          address: normalizedAddress,
+          level,
+          cycleNumber,
+          isIncomplete,
+          snapshotFreshnessBlock: getSnapshotFreshnessBlock(snapshot),
+          latestIndexedBlock: Number(latestActivity?.latestBlock || 0),
+        });
+
+        snapshot = await rebuildCycleSnapshot(
+          normalizedAddress,
+          level,
+          cycleNumber,
+          latestActivity
+        );
+        responseCache.delete(cacheKey);
+      } else if (isStale) {
         refreshCycleSnapshotInBackground(
           normalizedAddress,
           level,
