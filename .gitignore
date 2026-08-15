@@ -4,3 +4,4 @@ logs
 dist
 coverage
 WORKER.env
+.tmp-mongo/
