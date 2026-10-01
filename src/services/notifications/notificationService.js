@@ -116,14 +116,20 @@ export async function createSystemNotification({
   titleKey = 'notifications.system_notice.title',
   messageKey = 'notifications.system_notice.message',
   detailKey = 'notifications.system_notice.detail',
+  title = '',
+  message = '',
+  detail = '',
+  imageId = '',
+  imageUrl = '',
   i18nParams = {},
   severity = 'info',
   route = 'dashboard',
   source = 'admin',
   notificationType = 'system_notice',
+  dedupeKey = '',
 }) {
   const normalizedWallet = normalizeWallet(walletAddress);
-  const dedupeKey = `${source}:${notificationType}:${audience || normalizedWallet}:${Date.now()}`;
+  const resolvedDedupeKey = dedupeKey || `${source}:${notificationType}:${audience || normalizedWallet}:${Date.now()}`;
   return upsertNotification({
     walletAddress: normalizedWallet,
     chainId: env.CHAIN_ID,
@@ -133,9 +139,14 @@ export async function createSystemNotification({
     titleKey,
     messageKey,
     detailKey,
+    title,
+    message,
+    detail,
+    imageId,
+    imageUrl,
     i18nParams,
     route,
-    dedupeKey,
+    dedupeKey: resolvedDedupeKey,
   });
 }
 

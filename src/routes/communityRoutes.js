@@ -1,4 +1,5 @@
 import express from 'express';
+import { getPublicOfficialVideo } from '../controllers/officialVideoController.js';
 import {
   getCommunitySummary,
   getCommunityAnnouncements,
@@ -31,6 +32,7 @@ router.get('/events', getCommunityEvents);
 router.get('/founders/distribution', getFounderDistribution);
 router.get('/social-links', getCommunitySocialLinks);
 router.get('/resources', getCommunityResources);
+router.get('/official-video', getPublicOfficialVideo);
 
 router.get('/member/:address/summary', getCommunityMemberSummary);
 router.get('/member/:address/referrals', getCommunityMemberReferralStats);

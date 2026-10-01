@@ -1,0 +1,16 @@
+import express from 'express';
+import { requireWalletSession } from '../middleware/requireWalletSession.js';
+import { getTasks, postJoin, postSubmission, getComments, postComment, postReaction, getRewards, uploadProofImage, getOwnProofImage, streamTaskEvents } from '../controllers/taskController.js';
+const router=express.Router();
+router.use(requireWalletSession);
+router.get('/',getTasks);
+router.get('/rewards',getRewards);
+router.get('/events',streamTaskEvents);
+router.post('/media',express.raw({type:['image/jpeg','image/png','image/webp'],limit:'5mb'}),uploadProofImage);
+router.get('/media/:id',getOwnProofImage);
+router.post('/:id/join',postJoin);
+router.post('/:id/submissions',postSubmission);
+router.get('/:id/comments',getComments);
+router.post('/:id/comments',postComment);
+router.post('/:id/reactions',postReaction);
+export default router;

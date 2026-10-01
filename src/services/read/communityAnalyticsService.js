@@ -1,10 +1,6 @@
 import { ethers } from 'ethers';
-import { getContracts } from '../../blockchain/contracts.js';
-import { safeRpcCall } from '../../blockchain/provider.js';
 import IndexedReceipt from '../../models/IndexedReceipt.js';
 import IndexedRegistrationEvent from '../../models/IndexedRegistrationEvent.js';
-import IndexedEscrowEvent from '../../models/IndexedEscrowEvent.js';
-import ReferralCode from '../../models/ReferralCode.js';
 
 const CACHE_TTL_MS = 15000;
 const cache = new Map();
@@ -92,105 +88,48 @@ export async function fetchCommunityLeaderboard(limit = 20) {
   const cacheKey = `community-analytics:leaderboard:${safeLimit}`;
 
   return cached(cacheKey, async () => {
-    const [rows, escrowReleases] = await Promise.all([
-      IndexedReceipt.find({})
-        .select('receiver liquidPaid grossAmount escrowLocked timestamp')
-        .lean(),
-      IndexedEscrowEvent.find({ eventName: 'EscrowReleasedToUser' })
-        .select('user recipient amount')
-        .lean(),
-    ]);
+    const rows = await IndexedReceipt.find({})
+      .select('receiver liquidPaid grossAmount escrowLocked')
+      .lean();
 
     const grouped = new Map();
 
-    const ensureRow = (address) => {
-      const key = String(address || '').toLowerCase();
-      if (!key) return null;
+    for (const row of rows) {
+      const receiver = String(row.receiver || '').toLowerCase();
+      if (!receiver) continue;
 
-      if (!grouped.has(key)) {
-        grouped.set(key, {
-          address: key,
-          receiptLiquid: 0n,
-          escrowReleased: 0n,
+      if (!grouped.has(receiver)) {
+        grouped.set(receiver, {
+          address: receiver,
+          totalLiquid: 0n,
           totalGross: 0n,
           totalEscrow: 0n,
           receiptCount: 0,
-          releaseCount: 0,
-          latestReceiptAt: null,
         });
       }
 
-      return grouped.get(key);
-    };
-
-    for (const row of rows) {
-      const current = ensureRow(row.receiver);
-      if (!current) continue;
-
-      current.receiptLiquid += BigInt(row.liquidPaid || '0');
+      const current = grouped.get(receiver);
+      current.totalLiquid += BigInt(row.liquidPaid || '0');
       current.totalGross += BigInt(row.grossAmount || '0');
       current.totalEscrow += BigInt(row.escrowLocked || '0');
       current.receiptCount += 1;
-
-      const timestamp = row.timestamp ? new Date(row.timestamp) : null;
-      if (timestamp && (!current.latestReceiptAt || timestamp > current.latestReceiptAt)) {
-        current.latestReceiptAt = timestamp;
-      }
-    }
-
-    for (const row of escrowReleases) {
-      const current = ensureRow(row.recipient || row.user);
-      if (!current) continue;
-
-      current.escrowReleased += BigInt(row.amount || '0');
-      current.releaseCount += 1;
     }
 
     const sorted = Array.from(grouped.values())
       .sort((a, b) => {
-        if (a.totalGross === b.totalGross) {
-          if (a.receiptCount !== b.receiptCount) return b.receiptCount - a.receiptCount;
-          const aTime = a.latestReceiptAt?.getTime?.() || 0;
-          const bTime = b.latestReceiptAt?.getTime?.() || 0;
-          return bTime - aTime;
-        }
-        return a.totalGross > b.totalGross ? -1 : 1;
+        if (a.totalLiquid === b.totalLiquid) return b.receiptCount - a.receiptCount;
+        return a.totalLiquid > b.totalLiquid ? -1 : 1;
       })
       .slice(0, safeLimit);
 
-    const referralCodes = await ReferralCode.find({
-      walletAddress: { $in: sorted.map((row) => row.address) },
-    })
-      .select('walletAddress shortCode')
-      .lean();
-
-    const referralCodeMap = new Map(
-      referralCodes.map((row) => [
-        String(row.walletAddress || '').toLowerCase(),
-        row.shortCode,
-      ])
-    );
-
-    return sorted.map((row, index) => {
-      const shortCode = referralCodeMap.get(row.address) || '';
-      return {
-        rank: index + 1,
-        address: row.address,
-        referralId: shortCode,
-        shortCode,
-        totalEarned: formatRawUsdt(row.totalGross),
-        totalGenerated: formatRawUsdt(row.totalGross),
-        generatedGross: formatRawUsdt(row.totalGross),
-        receiptLiquid: formatRawUsdt(row.receiptLiquid),
-        walletCreditedLiquid: formatRawUsdt(row.receiptLiquid + row.escrowReleased),
-        escrowReleased: formatRawUsdt(row.escrowReleased),
-        totalGross: formatRawUsdt(row.totalGross),
-        totalEscrow: formatRawUsdt(row.totalEscrow),
-        receiptCount: row.receiptCount,
-        releaseCount: row.releaseCount,
-        financialTruthSource: 'indexed_receipts_gross_amount',
-      };
-    });
+    return sorted.map((row, index) => ({
+      rank: index + 1,
+      address: row.address,
+      totalEarned: formatRawUsdt(row.totalLiquid),
+      totalGross: formatRawUsdt(row.totalGross),
+      totalEscrow: formatRawUsdt(row.totalEscrow),
+      receiptCount: row.receiptCount,
+    }));
   });
 }
 
@@ -258,7 +197,7 @@ export async function fetchCommunityGrowth(days = 14) {
 
 export async function fetchCommunityGlobalStats() {
   return cached('community-analytics:global-stats', async () => {
-    const [registeredUsers, receiptRows] = await Promise.all([
+    const [totalUsers, receiptRows] = await Promise.all([
       IndexedRegistrationEvent.countDocuments({
         eventName: 'Registered',
       }),
@@ -267,26 +206,12 @@ export async function fetchCommunityGlobalStats() {
         .lean(),
     ]);
 
-    let totalParticipants = registeredUsers > 0 ? registeredUsers + 1 : registeredUsers;
-    try {
-      const contracts = getContracts();
-      const totalParticipantsRaw = await safeRpcCall(() =>
-        contracts.registration.totalParticipants()
-      );
-      const count = Number(totalParticipantsRaw || 0);
-      if (count > 0) totalParticipants = count;
-    } catch {
-      // Indexed fallback above already includes ID1 when registered users exist.
-    }
-
     const totalLiquidRaw = sumRawField(receiptRows, 'liquidPaid');
     const totalGrossRaw = sumRawField(receiptRows, 'grossAmount');
     const totalEscrowRaw = sumRawField(receiptRows, 'escrowLocked');
 
     return {
-      totalUsers: totalParticipants,
-      totalParticipants,
-      registeredUsers,
+      totalUsers,
       totalReceipts: receiptRows.length,
       totalLiquid: formatRawUsdt(totalLiquidRaw),
       totalGross: formatRawUsdt(totalGrossRaw),

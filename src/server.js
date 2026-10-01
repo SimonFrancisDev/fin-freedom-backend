@@ -9,10 +9,16 @@ import {
   stopRealtimeEventIndexer,
 } from './services/realtimeEventIndexer.js';
 import {
+  startFreedomPlusIndexer,
+  stopFreedomPlusIndexer,
+} from './services/freedomPlusIndexerService.js';
+import { verifyFreedomPlusContracts } from './blockchain/freedomPlusContracts.js';
+import {
   startNotificationDeliveryWorker,
   stopNotificationDeliveryWorker,
 } from './services/notifications/notificationDeliveryWorker.js';
 import env from './config/env.js';
+import { startNftRewardDistributionWorker, stopNftRewardDistributionWorker } from './services/nftRewardDistributionWorker.js';
 
 async function initializeBlockchainForServer() {
   try {
@@ -34,6 +40,11 @@ async function initializeBlockchainForServer() {
     const contracts = await verifyContracts();
     console.log('Contracts verified:');
     console.log(contracts);
+    const freedomPlusContracts = await verifyFreedomPlusContracts();
+    if (freedomPlusContracts.enabled) {
+      console.log('Freedom-Plus contracts verified:');
+      console.log(freedomPlusContracts);
+    }
   } catch (error) {
     console.error('Contract startup verification failed:', error);
     if (env.BLOCKCHAIN_STARTUP_REQUIRED) {
@@ -70,7 +81,7 @@ async function startServer() {
     // }
 
     if (env.RUN_INDEXER && env.REALTIME_EVENT_INDEXER_ENABLED) {
-      startRealtimeEventIndexer().catch((error) => {
+      await startRealtimeEventIndexer().catch((error) => {
         console.error('Realtime event indexer startup error:', error);
       });
     } else {
@@ -85,11 +96,24 @@ async function startServer() {
       console.log('Polling indexer not started in this process.');
     }
 
+    if (env.RUN_INDEXER && env.FREEDOM_PLUS_ENABLED) {
+      await startFreedomPlusIndexer({
+        sharedRealtime: env.REALTIME_EVENT_INDEXER_ENABLED,
+      }).catch((error) => {
+        console.error('Freedom-Plus indexer startup error:', error);
+      });
+    } else {
+      console.log('Freedom-Plus indexer not started in this process.');
+    }
+
     startNotificationDeliveryWorker();
+    startNftRewardDistributionWorker();
 
     const shutdown = async (signal) => {
       console.log(`${signal} received. Shutting down gracefully...`);
+      await stopNftRewardDistributionWorker();
       await stopRealtimeEventIndexer();
+      await stopFreedomPlusIndexer();
       await stopIndexer();
       stopNotificationDeliveryWorker();
       server.close(() => {

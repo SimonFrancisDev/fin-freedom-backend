@@ -1,6 +1,8 @@
 import { Contract, WebSocketProvider } from 'ethers';
 import env from '../config/env.js';
 import { getContracts } from '../blockchain/contracts.js';
+import { getFreedomPlusContractEntries } from '../blockchain/freedomPlusContracts.js';
+import { notifyFreedomPlusRealtimeEvent } from './freedomPlusIndexerService.js';
 
 import {
   getBlockCached,
@@ -143,6 +145,7 @@ function buildListenerSpecs() {
     ['levelManager', 'ActivationFinancialSummaryRecorded'],
     ['levelManager', 'PayoutNotDelivered'],
     ['levelManager', 'RecycleCompletedDetailed'],
+    ['levelManager', 'RecycleReserveUpdated'],
     ['levelManager', 'AutoUpgradeCompleted'],
     ['levelManager', 'FounderDistributionDetailed'],
     ['levelManager', 'SystemChargeDistributedDetailed'],
@@ -179,9 +182,11 @@ function buildListenerSpecs() {
     ['fgtToken', 'UtilityMinted'],
     ['fgtToken', 'UtilityBurned'],
     ['fgtToken', 'UtilityLocked'],
+    ['fgtToken', 'UtilityUnlocked'],
     ['fgtrToken', 'UtilityMinted'],
     ['fgtrToken', 'UtilityBurned'],
     ['fgtrToken', 'UtilityLocked'],
+    ['fgtrToken', 'UtilityUnlocked'],
     ['freedomTokenController', 'TokenRewardEligibility'],
   ];
 }
@@ -223,6 +228,32 @@ async function attachListener(contract, eventName, label) {
   });
 }
 
+async function attachFreedomPlusListeners(provider) {
+  if (!env.FREEDOM_PLUS_ENABLED || !env.FREEDOM_PLUS_REALTIME_ENABLED) return 0;
+
+  const entries = getFreedomPlusContractEntries(provider);
+  for (let index = 0; index < entries.length; index += 1) {
+    const [contractKey, contract] = entries[index];
+    const filter = { address: contract.target };
+    const handler = (log) => notifyFreedomPlusRealtimeEvent(contractKey, log);
+
+    await provider.on(filter, handler);
+    activeListeners.push({
+      contract: provider,
+      eventName: filter,
+      handler,
+      label: 'freedomPlus.' + contractKey,
+    });
+    realtimeHealth.listenersAttached = activeListeners.length;
+
+    if (REALTIME_SUBSCRIPTION_DELAY_MS > 0 && index < entries.length - 1) {
+      await sleep(REALTIME_SUBSCRIPTION_DELAY_MS);
+    }
+  }
+
+  return entries.length;
+}
+
 async function processRealtimeEvent({ contract, eventName, label, log }) {
   try {
     const chainId = Number(env.CHAIN_ID);
@@ -262,6 +293,7 @@ async function processRealtimeEvent({ contract, eventName, label, log }) {
         [
           'PayoutNotDelivered',
           'RecycleCompletedDetailed',
+          'RecycleReserveUpdated',
           'AutoUpgradeCompleted',
           'FounderDistributionDetailed',
           'SystemChargeDistributedDetailed',
@@ -286,7 +318,11 @@ async function processRealtimeEvent({ contract, eventName, label, log }) {
     }
 
     if (label === 'fgtToken' || label === 'fgtrToken') {
-      if (['UtilityMinted', 'UtilityBurned', 'UtilityLocked'].includes(parsed.name)) {
+      if (
+        ['UtilityMinted', 'UtilityBurned', 'UtilityLocked', 'UtilityUnlocked'].includes(
+          parsed.name
+        )
+      ) {
         const symbol = label === 'fgtToken' ? 'FGT' : 'FGTr';
         await saveTokenLog(chainId, symbol, log, parsed, block);
       }
@@ -530,6 +566,9 @@ async function connectRealtimeProvider() {
 
   attachSocketHandlers(currentWsProvider);
 
+  // Fail before creating subscriptions when the endpoint rejects this socket.
+  await currentWsProvider.getBlockNumber();
+
   const contracts = getContracts();
   const wsContracts = {
     registration: buildWsContract(contracts.registration, currentWsProvider),
@@ -558,24 +597,22 @@ async function connectRealtimeProvider() {
     }
   }
 
+  const freedomPlusListeners = await attachFreedomPlusListeners(currentWsProvider);
+
   realtimeHealth.listenersAttached = activeListeners.length;
   reconnecting = false;
 
-  try {
-    await currentWsProvider.getBlockNumber();
-    realtimeHealth.connected = true;
-    realtimeHealth.lastConnectedAt = new Date();
-    realtimeHealth.lastError = '';
-    realtimeHealth.reconnectAttempt = 0;
-  } catch (error) {
-    realtimeHealth.lastError = buildErrorMessage(error);
-    throw error;
-  }
+  realtimeHealth.connected = true;
+  realtimeHealth.lastConnectedAt = new Date();
+  realtimeHealth.lastError = '';
+  realtimeHealth.reconnectAttempt = 0;
 
   console.log('[REALTIME_EVENT_INDEXER_CONNECTED]', {
     url: wsUrl,
     index: realtimeHealth.currentWsIndex,
     listeners: activeListeners.length,
+    freedomPlusListeners,
+    sharedConnection: freedomPlusListeners > 0,
   });
 }
 

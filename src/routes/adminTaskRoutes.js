@@ -1,0 +1,17 @@
+import express from 'express';
+import { requireAdmin } from '../middleware/requireAdmin.js';
+import { getAdminTasks, postAdminTask, patchAdminTask, deleteAdminTask, getAdminSubmissions, patchAdminSubmission, getAdminComments, deleteAdminComment, getAdminRewards, patchAdminReward, getAdminProofImage } from '../controllers/adminTaskController.js';
+const router=express.Router();
+router.use(requireAdmin);
+router.get('/',getAdminTasks);
+router.post('/',postAdminTask);
+router.patch('/:id',patchAdminTask);
+router.delete('/:id',deleteAdminTask);
+router.get('/submissions/list',getAdminSubmissions);
+router.patch('/submissions/:id',patchAdminSubmission);
+router.get('/comments/list',getAdminComments);
+router.delete('/comments/:id',deleteAdminComment);
+router.get('/rewards/list',getAdminRewards);
+router.patch('/rewards/:id',patchAdminReward);
+router.get('/media/:id',getAdminProofImage);
+export default router;

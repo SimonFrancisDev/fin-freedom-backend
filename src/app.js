@@ -7,6 +7,7 @@ import env from './config/env.js';
 
 import healthRoutes from './routes/healthRoutes.js';
 import indexerRoutes from './routes/indexerRoutes.js';
+import freedomPlusRoutes from './routes/freedomPlusRoutes.js';
 import receiptRoutes from './routes/receiptRoutes.js';
 import orbitEventRoutes from './routes/orbitEventRoutes.js';
 import orbitRoutes from './routes/orbitRoutes.js';
@@ -18,6 +19,9 @@ import notificationRoutes from './routes/notificationRoutes.js';
 import adminNotificationRoutes from './routes/adminNotificationRoutes.js';
 import telegramRoutes from './routes/telegramRoutes.js';
 import profilePrivacyRoutes from './routes/profilePrivacyRoutes.js';
+import taskRoutes from './routes/taskRoutes.js';
+import adminTaskRoutes from './routes/adminTaskRoutes.js';
+import launchRoutes, { requireNewFeatureAccess } from './routes/launchRoutes.js';
 
 const app = express();
 
@@ -60,7 +64,7 @@ app.use(
     },
     credentials: false,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Profile-Viewer-Address', env.ADMIN_API_HEADER || 'x-admin-key'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Early-Access', 'X-Profile-Viewer-Address', 'X-File-Name', env.ADMIN_API_HEADER || 'x-admin-key'],
   })
 );
 
@@ -96,6 +100,8 @@ app.get('/', (req, res) => {
 
 app.use('/api/health', healthRoutes);
 app.use('/api/indexer', indexerRoutes);
+app.use('/api/launch', launchRoutes);
+app.use('/api/freedom-plus', requireNewFeatureAccess, freedomPlusRoutes);
 app.use('/api/receipts', receiptRoutes);
 app.use('/api/orbit-events', orbitEventRoutes);
 app.use('/api/orbits', orbitRoutes);
@@ -107,6 +113,8 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/admin/notifications', adminNotificationRoutes);
 app.use('/api/telegram', telegramRoutes);
 app.use('/api/profile-privacy', profilePrivacyRoutes);
+app.use('/api/tasks', requireNewFeatureAccess, taskRoutes);
+app.use('/api/admin/tasks', adminTaskRoutes);
 
 app.use((req, res) => {
   res.status(404).json({

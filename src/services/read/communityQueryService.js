@@ -1,7 +1,7 @@
 import { ethers } from 'ethers';
 import { getContracts } from '../../blockchain/contracts.js';
+import { getFreedomPlusContracts } from '../../blockchain/freedomPlusContracts.js';
 import { safeRpcCall } from '../../blockchain/provider.js';
-import env from '../../config/env.js';
 import CommunityAnnouncement from '../../models/CommunityAnnouncement.js';
 import CommunityEvent from '../../models/CommunityEvent.js';
 import CommunitySocialLink from '../../models/CommunitySocialLink.js';
@@ -11,13 +11,19 @@ import IndexedRegistrationEvent from '../../models/IndexedRegistrationEvent.js';
 import IndexedEscrowEvent from '../../models/IndexedEscrowEvent.js';
 import IndexedActivationSummary from '../../models/IndexedActivationSummary.js';
 import IndexedFinancialEvent from '../../models/IndexedFinancialEvent.js';
+import FreedomPlusEvent from '../../models/FreedomPlusEvent.js';
+import FreedomPlusLedgerEntry from '../../models/FreedomPlusLedgerEntry.js';
+import FreedomPlusPayment from '../../models/FreedomPlusPayment.js';
 
 const CACHE_TTL_MS = 15000;
 const cache = new Map();
-const inflight = new Map();
-const POLYGON_MAINNET_CHAIN_ID = 137;
-const POLYGON_USDT_ADDRESS = '0xc2132D05D31c914a87C6611C10748AEb04B58e8F';
-const ERC20_BALANCE_ABI = ['function balanceOf(address) view returns (uint256)'];
+
+function parseAddressList(value) {
+  return String(value || '')
+    .split(',')
+    .map((address) => address.trim().toLowerCase())
+    .filter((address) => ethers.isAddress(address));
+}const inflight = new Map();
 
 function getCache(key) {
   const hit = cache.get(key);
@@ -38,67 +44,48 @@ function setCache(key, value, ttlMs = CACHE_TTL_MS) {
 
 
 async function fetchTreasuryBreakdown(contracts) {
-  const usdt =
-    Number(env.CHAIN_ID) === POLYGON_MAINNET_CHAIN_ID && contracts?.provider
-      ? new ethers.Contract(POLYGON_USDT_ADDRESS, ERC20_BALANCE_ABI, contracts.provider)
-      : contracts?.usdt
-  const levelManager = contracts?.levelManager
-
-  if (!usdt) {
-    return {
-      nftPool: '0.00',
-      operations: '0.00',
-    }
+  const usdt = contracts?.usdt;
+  const levelManager = contracts?.levelManager;
+  if (!usdt || !levelManager) {
+    return { nftPool: '0.00', operations: '0.00', nftPoolRaw: '0', operationsRaw: '0' };
   }
 
-  const nftPoolAddress = levelManager?.nftPool
-    ? await safeRpcCall(() => levelManager.nftPool()).catch(() => '')
-    : ''
+  try {
+    const freedomPlus = getFreedomPlusContracts(contracts.provider);
+    const [fNft, fOps] = await Promise.all([
+      safeRpcCall(() => levelManager.nftPool()),
+      safeRpcCall(() => levelManager.operationsWallet()),
+    ]);
+    const nftAddresses = [...new Set([
+      String(fNft).toLowerCase(),
+      String(freedomPlus?.nftPoolVault?.target || '').toLowerCase(),
+      ...parseAddressList(process.env.LEGACY_NFT_POOL_VAULT_ADDRESSES),
+    ].filter(Boolean))];
+    const operationsAddresses = [...new Set([
+      String(fOps).toLowerCase(),
+      String(freedomPlus?.operationsVault?.target || '').toLowerCase(),
+      ...parseAddressList(process.env.LEGACY_OPERATIONS_VAULT_ADDRESSES),
+    ].filter(Boolean))];
+    const nftBalances = await Promise.all(nftAddresses.map((address) => safeBalanceOf(usdt, address)));
+    const operationsBalances = await Promise.all(
+      operationsAddresses.map((address) => safeBalanceOf(usdt, address))
+    );
+    const nftRaw = nftBalances.reduce((total, value) => total + BigInt(value || 0), 0n);
+    const operationsRaw = operationsBalances.reduce(
+      (total, value) => total + BigInt(value || 0),
+      0n
+    );
 
-  const opsAddress = levelManager?.operationsWallet
-    ? await safeRpcCall(() => levelManager.operationsWallet()).catch(() => '')
-    : ''
-
-  const nftVaultCandidate = env.NFT_POOL_VAULT_ADDRESS || env.NFT_POOL_ADDRESS || ''
-  const opsVaultCandidate = env.OPERATIONS_VAULT_ADDRESS || env.OPERATIONS_WALLET_ADDRESS || ''
-  const nftVaultAddress = ethers.isAddress(nftVaultCandidate) ? nftVaultCandidate : ''
-  const opsVaultAddress = ethers.isAddress(opsVaultCandidate) ? opsVaultCandidate : ''
-
-  const [nftRaw, opsRaw, nftVaultRaw, opsVaultRaw] = await Promise.all([
-    safeBalanceOf(usdt, nftPoolAddress),
-    safeBalanceOf(usdt, opsAddress),
-    nftVaultAddress ? safeBalanceOf(usdt, nftVaultAddress) : 0n,
-    opsVaultAddress ? safeBalanceOf(usdt, opsVaultAddress) : 0n,
-  ])
-
-  const nftCurrentRaw =
-    nftVaultAddress &&
-    String(nftVaultAddress).toLowerCase() !== String(nftPoolAddress).toLowerCase()
-      ? BigInt(nftRaw || 0) + BigInt(nftVaultRaw || 0)
-      : BigInt(nftRaw || 0) || BigInt(nftVaultRaw || 0)
-  const opsCurrentRaw =
-    opsVaultAddress &&
-    String(opsVaultAddress).toLowerCase() !== String(opsAddress).toLowerCase()
-      ? BigInt(opsRaw || 0) + BigInt(opsVaultRaw || 0)
-      : BigInt(opsRaw || 0) || BigInt(opsVaultRaw || 0)
-
-  return {
-    nftPool: formatUsdt(nftCurrentRaw),
-    operations: formatUsdt(opsCurrentRaw),
-    nftPoolRaw: String(nftCurrentRaw),
-    operationsRaw: String(opsCurrentRaw),
-    nftPoolRecipient: nftPoolAddress,
-    operationsRecipient: opsAddress,
-    nftPoolRecipientBalance: formatUsdt(nftRaw),
-    operationsRecipientBalance: formatUsdt(opsRaw),
-    nftPoolRecipientRaw: String(nftRaw || 0),
-    operationsRecipientRaw: String(opsRaw || 0),
-    nftPoolVault: nftVaultAddress,
-    operationsVault: opsVaultAddress,
-    nftPoolVaultBalance: formatUsdt(nftVaultRaw),
-    operationsVaultBalance: formatUsdt(opsVaultRaw),
-    nftPoolVaultRaw: String(nftVaultRaw || 0),
-    operationsVaultRaw: String(opsVaultRaw || 0),
+    return {
+      nftPool: formatUsdt(nftRaw),
+      operations: formatUsdt(operationsRaw),
+      nftPoolRaw: nftRaw.toString(),
+      operationsRaw: operationsRaw.toString(),
+      nftPoolAddresses: nftAddresses,
+      operationsAddresses,
+    };
+  } catch {
+    return { nftPool: '0.00', operations: '0.00', nftPoolRaw: '0', operationsRaw: '0' };
   }
 }
 
@@ -164,10 +151,9 @@ async function fetchTotalParticipants(contracts) {
   }
 
   try {
-    const registeredUsers = await IndexedRegistrationEvent.countDocuments({
+    return await IndexedRegistrationEvent.countDocuments({
       eventName: 'Registered',
     });
-    return registeredUsers > 0 ? registeredUsers + 1 : registeredUsers;
   } catch {
     return 0;
   }
@@ -390,25 +376,76 @@ async function fetchVisibleCoreBalance(contracts, financialMetrics = null) {
     : onChainBalanceRaw;
 }
 
+async function fetchFreedomPlusFinancialMetrics() {
+  try {
+    const [charges, payments, activations] = await Promise.all([
+      FreedomPlusLedgerEntry.find({ category: 'system_charge' })
+        .select('amount details')
+        .lean(),
+      FreedomPlusPayment.find({})
+        .select('amount')
+        .lean(),
+      FreedomPlusEvent.find({ eventName: 'PaidActivationSettled' })
+        .select('args')
+        .lean(),
+    ]);
+
+    return {
+      totalGeneratedRaw: activations.reduce(
+        (total, event) => total + toBigIntSafe(event?.args?.price),
+        0n
+      ),
+      totalWalletCreditedRaw: addRawStrings(payments, 'amount'),
+      systemChargeRaw: addRawStrings(charges, 'amount'),
+      nftPoolReceivedRaw: charges.reduce(
+        (total, entry) => total + toBigIntSafe(entry?.details?.nftPoolAmount),
+        0n
+      ),
+      operationsReceivedRaw: charges.reduce(
+        (total, entry) => total + toBigIntSafe(entry?.details?.operationsAmount),
+        0n
+      ),
+      paidActivationCount: activations.length,
+    };
+  } catch {
+    return {
+      totalGeneratedRaw: 0n,
+      totalWalletCreditedRaw: 0n,
+      systemChargeRaw: 0n,
+      nftPoolReceivedRaw: 0n,
+      operationsReceivedRaw: 0n,
+      paidActivationCount: 0,
+    };
+  }
+}
+
 async function fetchCommunityFinancialMetrics(contracts) {
-  const [receiptMetrics, escrowMetrics, activationMetrics] = await Promise.all([
-    fetchGlobalReceiptMetrics(),
-    fetchGlobalEscrowMetrics(contracts),
-    fetchGlobalActivationSummaryMetrics(),
-  ]);
+  const [receiptMetrics, escrowMetrics, activationMetrics, freedomPlusMetrics] =
+    await Promise.all([
+      fetchGlobalReceiptMetrics(),
+      fetchGlobalEscrowMetrics(contracts),
+      fetchGlobalActivationSummaryMetrics(),
+      fetchFreedomPlusFinancialMetrics(),
+    ]);
 
   const escrowLockedLifetimeRaw =
     escrowMetrics.lockedLifetimeRaw > 0n
       ? escrowMetrics.lockedLifetimeRaw
       : receiptMetrics.receiptEscrowLockedRaw;
 
-  const nftPoolReceivedRaw = activationMetrics.nftPoolReceivedRaw;
-  const operationsReceivedRaw = activationMetrics.operationsReceivedRaw;
-
+  const totalGeneratedRaw =
+    activationMetrics.activationVolumeRaw + freedomPlusMetrics.totalGeneratedRaw;
+  const nftPoolReceivedRaw =
+    activationMetrics.nftPoolReceivedRaw + freedomPlusMetrics.nftPoolReceivedRaw;
+  const operationsReceivedRaw =
+    activationMetrics.operationsReceivedRaw + freedomPlusMetrics.operationsReceivedRaw;
+  const systemChargeRaw =
+    activationMetrics.systemChargeRaw + freedomPlusMetrics.systemChargeRaw;
   const receiptLiquidPaidRaw = receiptMetrics.totalWalletCreditedRaw;
   const totalWalletCreditedRaw =
-    receiptLiquidPaidRaw + escrowMetrics.releasedToUsersRaw;
-
+    receiptLiquidPaidRaw +
+    escrowMetrics.releasedToUsersRaw +
+    freedomPlusMetrics.totalWalletCreditedRaw;
   const totalProtocolDistributedValueRaw =
     totalWalletCreditedRaw +
     escrowLockedLifetimeRaw +
@@ -419,13 +456,17 @@ async function fetchCommunityFinancialMetrics(contracts) {
     ...receiptMetrics,
     ...escrowMetrics,
     ...activationMetrics,
-
+    totalGeneratedRaw,
+    systemChargeRaw,
+    paidActivationCount:
+      activationMetrics.paidActivationCount + freedomPlusMetrics.paidActivationCount,
     receiptLiquidPaidRaw,
     totalWalletCreditedRaw,
     escrowLockedLifetimeRaw,
     nftPoolReceivedRaw,
     operationsReceivedRaw,
     totalProtocolDistributedValueRaw,
+    systemChargeTruthSource: 'indexed_f_freedom_plus_freedom_plus',
   };
 }
 
@@ -580,33 +621,23 @@ export async function fetchCommunitySummary() {
         operationsUtilized: formatUsdt(operationsUtilizedRaw),
         nftPoolLiveBalance: treasury?.nftPool || '0.00',
         operationsLiveBalance: treasury?.operations || '0.00',
-        nftPoolRecipient: treasury?.nftPoolRecipient || '',
-        operationsRecipient: treasury?.operationsRecipient || '',
-        nftPoolRecipientBalance: treasury?.nftPoolRecipientBalance || '0.00',
-        operationsRecipientBalance: treasury?.operationsRecipientBalance || '0.00',
-        nftPoolVault: treasury?.nftPoolVault || '',
-        operationsVault: treasury?.operationsVault || '',
-        nftPoolVaultBalance: treasury?.nftPoolVaultBalance || '0.00',
-        operationsVaultBalance: treasury?.operationsVaultBalance || '0.00',
+        nftPoolAddresses: treasury?.nftPoolAddresses || [],
+        operationsAddresses: treasury?.operationsAddresses || [],
         nftRewardPool: {
           totalInflow: formatUsdt(financialMetrics.nftPoolReceivedRaw),
           totalDistributed: formatUsdt(nftPoolDistributedRaw),
           currentBalance: treasury?.nftPool || '0.00',
-          recipientBalance: treasury?.nftPoolRecipientBalance || '0.00',
-          vaultBalance: treasury?.nftPoolVaultBalance || '0.00',
         },
         devOperations: {
           totalInflow: formatUsdt(financialMetrics.operationsReceivedRaw),
           totalUtilized: formatUsdt(operationsUtilizedRaw),
           currentBalance: treasury?.operations || '0.00',
-          recipientBalance: treasury?.operationsRecipientBalance || '0.00',
-          vaultBalance: treasury?.operationsVaultBalance || '0.00',
         },
         recycleAllocated: formatUsdt(financialMetrics.recycleAllocatedRaw),
         recyclePaidLiquid: formatUsdt(financialMetrics.recyclePaidLiquidRaw),
         recycleEscrowLocked: formatUsdt(financialMetrics.recycleEscrowLockedRaw),
         financialTruthSource: {
-          generatedGross: 'indexed_receipts',
+          generatedGross: 'indexed_activation_summaries_plus_freedom_plus_events',
           receiptLiquidPaid: 'indexed_receipts',
           walletCreditedLiquid: 'indexed_receipts_plus_escrow_releases',
           receiptEscrowLocked: 'indexed_receipts',
@@ -718,6 +749,7 @@ export async function fetchCommunityResources() {
 
 // import { ethers } from 'ethers';
 // import { getContracts } from '../../blockchain/contracts.js';
+
 // import { safeRpcCall } from '../../blockchain/provider.js';
 // import CommunityAnnouncement from '../../models/CommunityAnnouncement.js';
 // import CommunityEvent from '../../models/CommunityEvent.js';
@@ -728,7 +760,9 @@ export async function fetchCommunityResources() {
 
 // const CACHE_TTL_MS = 15000;
 // const cache = new Map();
+
 // const inflight = new Map();
+
 
 // function getCache(key) {
 //   const hit = cache.get(key);

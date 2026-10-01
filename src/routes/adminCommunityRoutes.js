@@ -1,5 +1,6 @@
 import express from 'express';
 import { requireAdmin } from '../middleware/requireAdmin.js';
+import { getAdminOfficialVideo, putAdminOfficialVideo } from '../controllers/officialVideoController.js';
 import {
   postAnnouncement,
   patchAnnouncement,
@@ -29,6 +30,8 @@ router.get('/announcements', getAdminAnnouncements);
 router.get('/events', getAdminEvents);
 router.get('/social-links', getAdminSocialLinks);
 router.get('/resources', getAdminResources);
+router.get('/official-video', getAdminOfficialVideo);
+router.put('/official-video', putAdminOfficialVideo);
 
 router.post('/announcements', postAnnouncement);
 router.patch('/announcements/:id', patchAnnouncement);

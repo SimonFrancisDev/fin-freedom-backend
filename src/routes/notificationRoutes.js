@@ -10,11 +10,13 @@ import {
   readAllNotifications,
   readNotification,
 } from '../controllers/notificationController.js';
+import { getNotificationMedia } from '../controllers/notificationMediaController.js';
 
 const router = express.Router();
 
 router.get('/', getNotificationFeed);
 router.get('/preferences', getNotificationPreferences);
+router.get('/media/:id', getNotificationMedia);
 router.patch('/preferences', patchNotificationPreferences);
 router.patch('/read-all', readAllNotifications);
 router.patch('/clear-read', clearRead);

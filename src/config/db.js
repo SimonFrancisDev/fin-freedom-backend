@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import env from './env.js';
+import { ensureReferralCodeIndexes } from '../services/referralCodeService.js';
 
 let connectionPromise = null;
 
@@ -24,6 +25,14 @@ export async function connectDB() {
   try {
     const conn = await connectionPromise;
     console.log(`MongoDB connected: ${conn.connection.name}`);
+    try {
+      await ensureReferralCodeIndexes();
+      console.log('Referral code indexes verified');
+    } catch (indexError) {
+      console.warn('Referral code index verification failed:', {
+        message: indexError?.message || String(indexError),
+      });
+    }
     return conn;
   } catch (error) {
     connectionPromise = null;

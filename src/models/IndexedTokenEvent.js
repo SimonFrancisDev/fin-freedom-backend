@@ -4,7 +4,7 @@ import mongoose from 'mongoose';
 const indexedTokenEventSchema = new mongoose.Schema({
   chainId: Number,
   tokenSymbol: { type: String, enum: ['FGT', 'FGTr'] }, 
-  eventName: { type: String, index: true },   // UtilityMinted, UtilityBurned, UtilityLocked
+  eventName: { type: String, index: true },   // UtilityMinted, UtilityBurned, UtilityLocked, UtilityUnlocked
   txHash: { type: String, lowercase: true },
   logIndex: Number,
   blockNumber: { type: Number, index: true },

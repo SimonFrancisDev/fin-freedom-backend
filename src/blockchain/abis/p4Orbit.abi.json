@@ -1618,7 +1618,7 @@
       },
       {
         "internalType": "uint256",
-        "name": "ruleBaseAmount",
+        "name": "",
         "type": "uint256"
       },
       {
@@ -1726,6 +1726,97 @@
     ],
     "name": "recordExternalEarning",
     "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "orbitOwner",
+        "type": "address"
+      },
+      {
+        "internalType": "uint8",
+        "name": "level",
+        "type": "uint8"
+      },
+      {
+        "internalType": "address",
+        "name": "newUser",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "ruleBaseAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "activationId",
+        "type": "uint256"
+      }
+    ],
+    "name": "recyclePositionDetailed",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint8",
+            "name": "sourcePosition",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint32",
+            "name": "sourceCycle",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint256",
+            "name": "toOwner",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "toSpillover1",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "spillover1Recipient",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "toSpillover2",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "spillover2Recipient",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "toEscrow",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "toRecycle",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct BaseOrbit.FillPositionDetailedResult",
+        "name": "result",
+        "type": "tuple"
+      }
+    ],
     "stateMutability": "nonpayable",
     "type": "function"
   },

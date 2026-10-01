@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import { getContracts } from '../../blockchain/contracts.js';
 import { safeRpcCall } from '../../blockchain/provider.js';
 import IndexedReceipt from '../../models/IndexedReceipt.js';
+import IndexedActivationSummary from '../../models/IndexedActivationSummary.js';
 import IndexedRegistrationEvent from '../../models/IndexedRegistrationEvent.js';
 import IndexedOrbitEvent from '../../models/IndexedOrbitEvent.js'
 import IndexedEscrowEvent from '../../models/IndexedEscrowEvent.js';
@@ -121,20 +122,8 @@ async function tryRpc(fn, fallback) {
   }
 }
 
-async function resolveHighestActiveLevel(contracts, normalizedAddress) {
-  const levelManager = contracts?.levelManager;
-  const registration = contracts?.registration;
-
-  if (typeof levelManager?.highestActiveLevel === 'function') {
-    const direct = await tryRpc(
-      () => levelManager.highestActiveLevel(normalizedAddress),
-      null
-    );
-
-    if (direct !== null && direct !== undefined) {
-      return Number(direct || 0);
-    }
-  }
+async function resolveHighestActiveLevel(registration, normalizedAddress) {
+  const normalizedLower = lower(normalizedAddress);
 
   if (typeof registration?.highestActiveLevel === 'function') {
     const direct = await tryRpc(
@@ -142,32 +131,16 @@ async function resolveHighestActiveLevel(contracts, normalizedAddress) {
       null
     );
 
-    if (direct !== null && direct !== undefined) {
-      return Number(direct || 0);
+    const directLevel = Number(direct || 0);
+    if (direct !== null && direct !== undefined && directLevel > 0) {
+      return directLevel;
     }
   }
 
   const levelStates = await Promise.all(
-    Array.from({ length: 10 }, async (_, index) => {
-      const level = index + 1;
-
-      if (typeof levelManager?.userLevelActivated === 'function') {
-        const fromLevelManager = await tryRpc(
-          () => levelManager.userLevelActivated(normalizedAddress, level),
-          null
-        );
-
-        if (fromLevelManager !== null && fromLevelManager !== undefined) {
-          return Boolean(fromLevelManager);
-        }
-      }
-
-      if (typeof registration?.isLevelActivated === 'function') {
-        return tryRpc(() => registration.isLevelActivated(normalizedAddress, level), false);
-      }
-
-      return false;
-    })
+    Array.from({ length: 10 }, (_, index) =>
+      tryRpc(() => registration.isLevelActivated(normalizedAddress, index + 1), false)
+    )
   );
 
   let highest = 0;
@@ -175,34 +148,31 @@ async function resolveHighestActiveLevel(contracts, normalizedAddress) {
     if (levelStates[index]) highest = index + 1;
   }
 
-  return highest;
-}
+  if (highest > 0) return highest;
 
-async function hasIndexedRegistration(normalizedLower) {
-  try {
-    const row = await IndexedRegistrationEvent.exists({
-      eventName: 'Registered',
+  const [latestActivation, latestRegistrationActivation] = await Promise.all([
+    IndexedActivationSummary.findOne({ user: normalizedLower })
+      .select('level')
+      .sort({ level: -1, blockNumber: -1, logIndex: -1 })
+      .lean()
+      .catch(() => null),
+    IndexedRegistrationEvent.findOne({
       user: normalizedLower,
-    });
-    return Boolean(row);
-  } catch {
-    return false;
-  }
-}
-
-async function readIndexedReferrer(normalizedLower) {
-  try {
-    const row = await IndexedRegistrationEvent.findOne({
-      eventName: 'Registered',
-      user: normalizedLower,
+      eventName: { $in: ['Registered', 'LevelActivated', 'FounderRepActivated'] },
     })
-      .select('referrer')
-      .sort({ blockNumber: -1, logIndex: -1 })
-      .lean();
-    return row?.referrer || '';
-  } catch {
-    return '';
-  }
+      .select('eventName level')
+      .sort({ level: -1, blockNumber: -1, logIndex: -1 })
+      .lean()
+      .catch(() => null),
+  ]);
+
+  return Math.max(
+    Number(latestActivation?.level || 0),
+    Number(
+      latestRegistrationActivation?.level ||
+        (latestRegistrationActivation?.eventName === 'Registered' ? 1 : 0)
+    )
+  );
 }
 
 async function readLockedBalance(tokenContract, normalizedAddress) {
@@ -273,27 +243,23 @@ export async function fetchCommunityMemberSummary(address) {
     const contracts = getContracts();
     const registration = contracts.registration;
 
-    const [receiptRows, tokenBalances, isRegisteredRaw, indexedRegistered, referrerRaw, indexedReferrerRaw, highestActiveLevelRaw, releasedEscrowRaw, id1WalletRaw, levelManagerId1Raw] =
+    const [receiptRows, tokenBalances, isRegisteredRaw, referrerRaw, highestActiveLevelRaw, releasedEscrowRaw, id1WalletRaw] =
       await Promise.all([
         IndexedReceipt.find({ receiver: normalizedLower })
           .select('liquidPaid escrowLocked grossAmount')
           .lean(),
         readTokenBalancesWithFallback(contracts, normalizedAddress),
         tryRpc(() => registration.isRegistered(normalizedAddress), false),
-        hasIndexedRegistration(normalizedLower),
         tryRpc(() => registration.getReferrer(normalizedAddress), ethers.ZeroAddress),
-        readIndexedReferrer(normalizedLower),
-        resolveHighestActiveLevel(contracts, normalizedAddress),
+        resolveHighestActiveLevel(registration, normalizedAddress),
         sumReleasedEscrowToUser(normalizedAddress),
         tryRpc(() => registration.id1Wallet(), ethers.ZeroAddress),
-        tryRpc(() => contracts.levelManager.id1Wallet(), ethers.ZeroAddress),
       ]);
 
-    const isProtocolId1Wallet =
-      lower(id1WalletRaw || ethers.ZeroAddress) === normalizedLower ||
-      lower(levelManagerId1Raw || ethers.ZeroAddress) === normalizedLower;
+    const isProtocolId1Wallet = lower(id1WalletRaw) === normalizedLower;
     const highestActiveLevel = isProtocolId1Wallet ? 10 : Number(highestActiveLevelRaw || 0);
     const activeLevelsCount = highestActiveLevel;
+    const isRegistered = Boolean(isRegisteredRaw) || isProtocolId1Wallet || highestActiveLevel > 0;
 
     const totalLiquidPaidRaw = sumRawReceiptField(receiptRows, 'liquidPaid');
     const totalWalletCreditedRaw = totalLiquidPaidRaw + releasedEscrowRaw;
@@ -301,11 +267,11 @@ export async function fetchCommunityMemberSummary(address) {
     const totalGrossAmountRaw = sumRawReceiptField(receiptRows, 'grossAmount');
 
     const cleanReferrer =
-      referrerRaw && referrerRaw !== ethers.ZeroAddress ? referrerRaw : indexedReferrerRaw || '';
+      referrerRaw && referrerRaw !== ethers.ZeroAddress ? referrerRaw : '';
 
     return {
       address: normalizedAddress,
-      isRegistered: Boolean(isRegisteredRaw) || indexedRegistered || isProtocolId1Wallet,
+      isRegistered,
       isProtocolId1Wallet,
       referrer: cleanReferrer,
       highestActiveLevel,
@@ -429,40 +395,6 @@ async function buildReferralGraphMap() {
   return map;
 }
 
-function getOrbitContractForLevel(contracts, level) {
-  if ([1, 4, 7, 10].includes(level)) return contracts?.p4Orbit;
-  if ([2, 5, 8].includes(level)) return contracts?.p12Orbit;
-  if ([3, 6, 9].includes(level)) return contracts?.p39Orbit;
-  return null;
-}
-
-async function readLiveOrbitFilledCount(contracts, normalizedAddress, level) {
-  const orbitContract = getOrbitContractForLevel(contracts, level);
-  if (!orbitContract?.getUserOrbit) {
-    return { totalFilled: 0, positionsInLine1: 0, positionsInLine2: 0, positionsInLine3: 0 };
-  }
-
-  const orbit = await tryRpc(
-    () => orbitContract.getUserOrbit(normalizedAddress, level),
-    null
-  );
-
-  if (!orbit) {
-    return { totalFilled: 0, positionsInLine1: 0, positionsInLine2: 0, positionsInLine3: 0 };
-  }
-
-  const positionsInLine1 = Number(orbit.positionsInLine1 ?? orbit[3] ?? 0);
-  const positionsInLine2 = Number(orbit.positionsInLine2 ?? orbit[4] ?? 0);
-  const positionsInLine3 = Number(orbit.positionsInLine3 ?? orbit[5] ?? 0);
-
-  return {
-    totalFilled: positionsInLine1 + positionsInLine2 + positionsInLine3,
-    positionsInLine1,
-    positionsInLine2,
-    positionsInLine3,
-  };
-}
-
 export async function fetchCommunityMemberDownlineStats(address) {
   const normalizedAddress = normalizeAddress(address);
   const normalizedLower = lower(normalizedAddress);
@@ -526,7 +458,6 @@ export async function fetchCommunityMemberOrbitNetwork(address) {
   const cacheKey = `community-member:orbit-network:${normalizedLower}`
 
   return cached(cacheKey, async () => {
-    const contracts = getContracts();
     const rows = await IndexedOrbitEvent.find({
       orbitOwner: normalizedLower,
       eventName: 'PositionFilled',
@@ -580,54 +511,6 @@ export async function fetchCommunityMemberOrbitNetwork(address) {
         totalMembersAcrossCycles: cycleList.reduce((sum, item) => sum + item.members, 0),
         latestCycle: cycleList.length ? cycleList[cycleList.length - 1].cycle : 0,
         latestCycleMembers: cycleList.length ? cycleList[cycleList.length - 1].members : 0,
-      }
-    }
-
-    const liveCounts = await Promise.all(
-      Array.from({ length: 10 }, async (_, index) => {
-        const level = index + 1;
-        return {
-          level,
-          ...(await readLiveOrbitFilledCount(contracts, normalizedAddress, level)),
-        };
-      })
-    );
-
-    for (const live of liveCounts) {
-      const levelKey = `level${live.level}`;
-      if (!formattedLevels[levelKey]) {
-        formattedLevels[levelKey] = {
-          cycles: [],
-          totalMembersAcrossCycles: 0,
-          latestCycle: 0,
-          latestCycleMembers: 0,
-        };
-      }
-
-      const indexedTotal = Number(formattedLevels[levelKey].totalMembersAcrossCycles || 0);
-      if (live.totalFilled > indexedTotal) {
-        formattedLevels[levelKey] = {
-          ...formattedLevels[levelKey],
-          totalMembersAcrossCycles: live.totalFilled,
-          latestCycleMembers: Math.max(
-            Number(formattedLevels[levelKey].latestCycleMembers || 0),
-            live.totalFilled
-          ),
-          liveFilledPositions: live.totalFilled,
-          positionsInLine1: live.positionsInLine1,
-          positionsInLine2: live.positionsInLine2,
-          positionsInLine3: live.positionsInLine3,
-          countSource: 'live_orbit_counters',
-        };
-      } else {
-        formattedLevels[levelKey] = {
-          ...formattedLevels[levelKey],
-          liveFilledPositions: live.totalFilled,
-          positionsInLine1: live.positionsInLine1,
-          positionsInLine2: live.positionsInLine2,
-          positionsInLine3: live.positionsInLine3,
-          countSource: indexedTotal > 0 ? 'indexed_orbit_events' : 'empty',
-        };
       }
     }
 

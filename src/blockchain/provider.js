@@ -1,4 +1,4 @@
-import { JsonRpcProvider, WebSocketProvider } from 'ethers';
+import { FetchRequest, JsonRpcProvider, WebSocketProvider } from 'ethers';
 import env from '../config/env.js';
 
 let httpProviderEntries = [];
@@ -31,6 +31,7 @@ const DEFAULT_FALLBACK_POLL_INTERVAL_MS = 4000;
 
 const inFlightRequests = new Map();
 let lastCallTimestamps = [];
+let rateLimitTail = Promise.resolve();
 
 // Deduplicated RPC call
 export async function dedupedRpcCall(key, fn, ttl = 300) {
@@ -49,16 +50,31 @@ export async function dedupedRpcCall(key, fn, ttl = 300) {
 
 // Rate limit guard (prevents spikes BEFORE provider rejects)
 async function enforceRateLimit() {
-  const now = Date.now();
-  lastCallTimestamps = lastCallTimestamps.filter(t => now - t < 1000);
+  let release;
+  const previous = rateLimitTail;
+  rateLimitTail = new Promise((resolve) => {
+    release = resolve;
+  });
 
-  const MAX_RPS = Number(env.RPC_MAX_RPS) || 50;
+  await previous;
+  try {
+    const maxRps = Math.max(1, Number(env.RPC_MAX_RPS) || 50);
 
-  if (lastCallTimestamps.length > MAX_RPS) {
-    await sleep(200);
+    while (true) {
+      const now = Date.now();
+      lastCallTimestamps = lastCallTimestamps.filter((timestamp) => now - timestamp < 1000);
+
+      if (lastCallTimestamps.length < maxRps) {
+        lastCallTimestamps.push(now);
+        return;
+      }
+
+      const waitMs = Math.max(1, 1000 - (now - lastCallTimestamps[0]));
+      await sleep(waitMs);
+    }
+  } finally {
+    release();
   }
-
-  lastCallTimestamps.push(now);
 }
 
 
@@ -225,11 +241,13 @@ function isTransientRpcError(error) {
 }
 
 function buildHttpEntry(url, index) {
+  const request = new FetchRequest(url);
+  request.timeout = env.RPC_REQUEST_TIMEOUT_MS;
   return {
     id: `rpc-${index + 1}`,
     url,
     provider: new JsonRpcProvider(
-      url,
+      request,
       {
         chainId: env.CHAIN_ID,
         name: `chain-${env.CHAIN_ID}`,
@@ -1061,8 +1079,6 @@ export async function connectBlockchain(options = {}) {
 
   const network = await safeRpcCall((provider) => provider.getNetwork(), retries, baseDelayMs);
   const blockNumber = await safeRpcCall((provider) => provider.getBlockNumber(), retries, baseDelayMs);
-
-  ensureWsBlockSubscriptionStarted();
 
   return {
     chainId: Number(network.chainId),

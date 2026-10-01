@@ -11,6 +11,12 @@ import {
   startRealtimeEventIndexer,
   stopRealtimeEventIndexer,
 } from './services/realtimeEventIndexer.js';
+import {
+  startFreedomPlusIndexer,
+  stopFreedomPlusIndexer,
+} from './services/freedomPlusIndexerService.js';
+import { verifyFreedomPlusContracts } from './blockchain/freedomPlusContracts.js';
+import { buildFreedomPlusRewardSnapshot } from './services/freedomPlusRewardSnapshotService.js';
 
 function parseCliArgs(argv) {
   const [command, ...rest] = argv;
@@ -46,6 +52,11 @@ async function connectWorkerDependencies() {
   const contracts = await verifyContracts();
   console.log('Indexer worker contracts verified:');
   console.log(contracts);
+  const freedomPlusContracts = await verifyFreedomPlusContracts();
+  if (freedomPlusContracts.enabled) {
+    console.log('Freedom-Plus contracts verified:');
+    console.log(freedomPlusContracts);
+  }
 }
 
 async function runReplayCommand(args) {
@@ -75,6 +86,15 @@ async function runReplayCommand(args) {
     return;
   }
 
+  if (args.command === 'freedom-plus-reward-snapshot') {
+    const result = await buildFreedomPlusRewardSnapshot({
+      year: Number(requireCliValue(args, 'year')),
+      month: Number(requireCliValue(args, 'month')),
+    });
+    console.log('[FREEDOM_PLUS_REWARD_SNAPSHOT]', result);
+    return;
+  }
+
   throw new Error(`[UNKNOWN_INDEXER_WORKER_COMMAND] ${args.command}`);
 }
 
@@ -90,6 +110,7 @@ async function startWorker() {
     await connectWorkerDependencies();
     await startRealtimeEventIndexer();
     await startIndexer({ processRole: 'worker' });
+    await startFreedomPlusIndexer();
     console.log('Indexer worker started successfully.');
   } catch (error) {
     console.error('Indexer worker failed to start:', error);
@@ -102,6 +123,7 @@ startWorker();
 async function shutdown(signal) {
   console.log(`${signal} received. Stopping indexer worker...`);
   await stopRealtimeEventIndexer();
+  await stopFreedomPlusIndexer();
   await stopIndexer();
   process.exit(0);
 }
