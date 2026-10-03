@@ -343,7 +343,7 @@ export async function freedomPlusDashboard(address) {
     FreedomPlusLedgerEntry.find({
       chainId: env.CHAIN_ID,
       category: { $in: ['system_charge', 'nft_membership', 'nft_claim'] },
-    }).select('category amount eventName').lean(),
+    }).select('category amount eventName details').lean(),
     FreedomPlusParticipant.find({
       chainId: env.CHAIN_ID,
       registered: true,
@@ -360,7 +360,14 @@ export async function freedomPlusDashboard(address) {
   const sumRaw = (items) => items.reduce((sum, item) => sum + BigInt(item.amount || 0), 0n).toString();
   const paymentTotal = sumRaw(payments);
   const systemCharges = systemLedger.filter((item) => item.category === 'system_charge');
-  const nftInflow = systemLedger.filter((item) => item.category === 'nft_membership');
+  const nftInflowRaw = systemCharges.reduce(
+    (total, item) => total + BigInt(item.details?.nftPoolAmount || 0),
+    0n,
+  ).toString();
+  const operationsInflowRaw = systemCharges.reduce(
+    (total, item) => total + BigInt(item.details?.operationsAmount || 0),
+    0n,
+  ).toString();
   const nftClaims = systemLedger.filter((item) => item.category === 'nft_claim');
   const growthByDate = new Map();
   for (let offset = 0; offset < 7; offset += 1) {
@@ -381,7 +388,8 @@ export async function freedomPlusDashboard(address) {
       paymentComponents: payments.length,
       walletCreditedRaw: paymentTotal,
       systemChargesRaw: sumRaw(systemCharges),
-      nftInflowRaw: sumRaw(nftInflow),
+      nftInflowRaw,
+      operationsInflowRaw,
       nftDistributedRaw: sumRaw(nftClaims),
     },
     growth: [...growthByDate].map(([date, count]) => ({ date, registrations: count })),
