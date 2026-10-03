@@ -378,7 +378,7 @@ async function fetchVisibleCoreBalance(contracts, financialMetrics = null) {
 
 async function fetchFreedomPlusFinancialMetrics() {
   try {
-    const [charges, payments, activations] = await Promise.all([
+    const [charges, payments, activations, nftClaims, operationsWithdrawals] = await Promise.all([
       FreedomPlusLedgerEntry.find({ category: 'system_charge' })
         .select('amount details')
         .lean(),
@@ -386,6 +386,12 @@ async function fetchFreedomPlusFinancialMetrics() {
         .select('amount')
         .lean(),
       FreedomPlusEvent.find({ eventName: 'PaidActivationSettled' })
+        .select('args')
+        .lean(),
+      FreedomPlusLedgerEntry.find({ category: 'nft_claim' })
+        .select('amount')
+        .lean(),
+      FreedomPlusEvent.find({ contractKey: 'operationsVault', eventName: 'Withdrawal' })
         .select('args')
         .lean(),
     ]);
@@ -405,6 +411,11 @@ async function fetchFreedomPlusFinancialMetrics() {
         (total, entry) => total + toBigIntSafe(entry?.details?.operationsAmount),
         0n
       ),
+      nftDistributedRaw: addRawStrings(nftClaims, 'amount'),
+      operationsUtilizedRaw: operationsWithdrawals.reduce(
+        (total, event) => total + toBigIntSafe(event?.args?.amount),
+        0n
+      ),
       paidActivationCount: activations.length,
     };
   } catch {
@@ -414,6 +425,8 @@ async function fetchFreedomPlusFinancialMetrics() {
       systemChargeRaw: 0n,
       nftPoolReceivedRaw: 0n,
       operationsReceivedRaw: 0n,
+      nftDistributedRaw: 0n,
+      operationsUtilizedRaw: 0n,
       paidActivationCount: 0,
     };
   }
@@ -465,6 +478,8 @@ async function fetchCommunityFinancialMetrics(contracts) {
     escrowLockedLifetimeRaw,
     nftPoolReceivedRaw,
     operationsReceivedRaw,
+    nftDistributedRaw: freedomPlusMetrics.nftDistributedRaw,
+    operationsUtilizedRaw: freedomPlusMetrics.operationsUtilizedRaw,
     totalProtocolDistributedValueRaw,
     systemChargeTruthSource: 'indexed_f_freedom_plus_freedom_plus',
   };
@@ -573,16 +588,8 @@ export async function fetchCommunitySummary() {
     ]);
 
     const visibleCoreBalanceRaw = await fetchVisibleCoreBalance(contracts, financialMetrics);
-    const nftPoolLiveRaw = toBigIntSafe(treasury?.nftPoolRaw || 0);
-    const operationsLiveRaw = toBigIntSafe(treasury?.operationsRaw || 0);
-    const nftPoolDistributedRaw =
-      financialMetrics.nftPoolReceivedRaw > nftPoolLiveRaw
-        ? financialMetrics.nftPoolReceivedRaw - nftPoolLiveRaw
-        : 0n;
-    const operationsUtilizedRaw =
-      financialMetrics.operationsReceivedRaw > operationsLiveRaw
-        ? financialMetrics.operationsReceivedRaw - operationsLiveRaw
-        : 0n;
+    const nftPoolDistributedRaw = financialMetrics.nftDistributedRaw;
+    const operationsUtilizedRaw = financialMetrics.operationsUtilizedRaw;
 
     return {
       public: {
@@ -650,6 +657,8 @@ export async function fetchCommunitySummary() {
           systemChargeTotal: financialMetrics.systemChargeTruthSource,
           nftPoolAllocated: financialMetrics.systemChargeTruthSource,
           operationsAllocated: financialMetrics.systemChargeTruthSource,
+          nftPoolDistributed: 'indexed_reward_claim_events',
+          operationsUtilized: 'indexed_operations_withdrawal_events',
           nftPoolLiveBalance: 'live_wallet_balance',
           operationsLiveBalance: 'live_wallet_balance',
           recycleAllocated: 'indexed_activation_summaries',
