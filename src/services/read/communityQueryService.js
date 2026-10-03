@@ -589,7 +589,15 @@ export async function fetchCommunitySummary() {
 
     const visibleCoreBalanceRaw = await fetchVisibleCoreBalance(contracts, financialMetrics);
     const nftPoolDistributedRaw = financialMetrics.nftDistributedRaw;
-    const operationsUtilizedRaw = financialMetrics.operationsUtilizedRaw;
+    const operationsLiveBalanceRaw = toBigIntSafe(treasury?.operationsRaw);
+    const reconciledOperationsOutflowRaw =
+      financialMetrics.operationsReceivedRaw > operationsLiveBalanceRaw
+        ? financialMetrics.operationsReceivedRaw - operationsLiveBalanceRaw
+        : 0n;
+    const operationsUtilizedRaw =
+      financialMetrics.operationsUtilizedRaw > reconciledOperationsOutflowRaw
+        ? financialMetrics.operationsUtilizedRaw
+        : reconciledOperationsOutflowRaw;
 
     return {
       public: {
@@ -658,7 +666,7 @@ export async function fetchCommunitySummary() {
           nftPoolAllocated: financialMetrics.systemChargeTruthSource,
           operationsAllocated: financialMetrics.systemChargeTruthSource,
           nftPoolDistributed: 'indexed_reward_claim_events',
-          operationsUtilized: 'indexed_operations_withdrawal_events',
+          operationsUtilized: 'indexed_withdrawals_or_accumulated_minus_live_balance',
           nftPoolLiveBalance: 'live_wallet_balance',
           operationsLiveBalance: 'live_wallet_balance',
           recycleAllocated: 'indexed_activation_summaries',
