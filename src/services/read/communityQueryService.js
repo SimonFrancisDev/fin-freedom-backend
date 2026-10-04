@@ -79,9 +79,15 @@ async function fetchTreasuryBreakdown(contracts) {
     ].filter(Boolean))];
     const readBalance = async (address) => {
       try {
-        const value = await safeRpcCall(() => usdt.balanceOf(address));
+        const callData = usdt.interface.encodeFunctionData('balanceOf', [address]);
+        const rawResult = await safeRpcCall((provider) => provider.call({
+          to: usdt.target,
+          data: callData,
+        }));
+        const [value] = usdt.interface.decodeFunctionResult('balanceOf', rawResult);
         return { address, ok: true, value: BigInt(value || 0) };
       } catch (error) {
+        console.error('Treasury balance read failed:', { address, message: error.message });
         return { address, ok: false, value: 0n, error: error.message };
       }
     };
