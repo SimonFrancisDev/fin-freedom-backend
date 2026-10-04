@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import env from '../../config/env.js';
 import IndexedReceipt from '../../models/IndexedReceipt.js';
 import IndexedRegistrationEvent from '../../models/IndexedRegistrationEvent.js';
+import IndexedEscrowEvent from '../../models/IndexedEscrowEvent.js';
 import FreedomPlusPayment from '../../models/FreedomPlusPayment.js';
 import FreedomPlusLedgerEntry from '../../models/FreedomPlusLedgerEntry.js';
 import FreedomPlusParticipant from '../../models/FreedomPlusParticipant.js';
@@ -126,8 +127,10 @@ export async function fetchCommunityLeaderboard(limit = 20) {
   const cacheKey = `community-analytics:leaderboard:${safeLimit}`;
 
   return cached(cacheKey, async () => {
-    const [rows, freedomPlusPayments, founderIncome] = await Promise.all([
+    const [rows, escrowReleases, freedomPlusPayments, founderIncome] = await Promise.all([
       IndexedReceipt.find({ chainId: env.CHAIN_ID }).select('receiver liquidPaid grossAmount escrowLocked').lean(),
+      IndexedEscrowEvent.find({ chainId: env.CHAIN_ID, eventName: 'EscrowReleasedToUser' })
+        .select('user amount').lean(),
       FreedomPlusPayment.find({ chainId: env.CHAIN_ID })
         .select('recipient amount').lean(),
       FreedomPlusLedgerEntry.find({ chainId: env.CHAIN_ID, category: 'founder_income' })
@@ -143,6 +146,11 @@ export async function fetchCommunityLeaderboard(limit = 20) {
       current.totalGross += BigInt(row.grossAmount || '0');
       current.totalEscrow += BigInt(row.escrowLocked || '0');
       current.receiptCount += 1;
+    }
+    for (const release of escrowReleases) {
+      const current = ensureEarningsRow(grouped, release.user);
+      if (!current) continue;
+      current.totalLiquid += BigInt(release.amount || '0');
     }
     addFreedomPlusEarnings(grouped, freedomPlusPayments, founderIncome);
 
