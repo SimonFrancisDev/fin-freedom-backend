@@ -128,7 +128,7 @@ export async function fetchCommunityLeaderboard(limit = 20) {
   return cached(cacheKey, async () => {
     const [rows, freedomPlusPayments, founderIncome] = await Promise.all([
       IndexedReceipt.find({ chainId: env.CHAIN_ID }).select('receiver liquidPaid grossAmount escrowLocked').lean(),
-      FreedomPlusPayment.find({ chainId: env.CHAIN_ID, distributedToFounders: { $ne: true } })
+      FreedomPlusPayment.find({ chainId: env.CHAIN_ID })
         .select('recipient amount').lean(),
       FreedomPlusLedgerEntry.find({ chainId: env.CHAIN_ID, category: 'founder_income' })
         .select('wallet amount').lean(),

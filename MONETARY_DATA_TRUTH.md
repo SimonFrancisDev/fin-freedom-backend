@@ -21,7 +21,7 @@ A failed RPC balance read is not zero. The API returns a null live balance and a
 
 ## Leaderboard
 
-Leaderboard earnings include F-Freedom indexed receipts, ordinary Freedom Plus payments, and per-founder Freedom Plus income. Aggregate ID1 founder-payment records are excluded to prevent counting the same payment twice.
+Leaderboard earnings include F-Freedom indexed receipts, Freedom Plus payments, and per-founder Freedom Plus income. ID1 shows the full amount routed to ID1 before its mandatory split among the eight founders; each founder also shows the amount actually credited to that founder. This intentional attribution overlap is limited to the leaderboard. Global monetary totals exclude the aggregate ID1 founder-payment record to prevent double-counting system money.
 
 ## UI rules
 
