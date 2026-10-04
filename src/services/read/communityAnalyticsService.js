@@ -1,6 +1,10 @@
 import { ethers } from 'ethers';
+import env from '../../config/env.js';
 import IndexedReceipt from '../../models/IndexedReceipt.js';
 import IndexedRegistrationEvent from '../../models/IndexedRegistrationEvent.js';
+import FreedomPlusPayment from '../../models/FreedomPlusPayment.js';
+import FreedomPlusLedgerEntry from '../../models/FreedomPlusLedgerEntry.js';
+import FreedomPlusParticipant from '../../models/FreedomPlusParticipant.js';
 
 const CACHE_TTL_MS = 15000;
 const cache = new Map();
@@ -83,37 +87,64 @@ function sumRawField(rows, fieldName) {
   }, 0n);
 }
 
+function ensureEarningsRow(grouped, address) {
+  const normalized = String(address || '').toLowerCase();
+  if (!ethers.isAddress(normalized)) return null;
+  if (!grouped.has(normalized)) {
+    grouped.set(normalized, {
+      address: normalized,
+      totalLiquid: 0n,
+      totalGross: 0n,
+      totalEscrow: 0n,
+      receiptCount: 0,
+    });
+  }
+  return grouped.get(normalized);
+}
+
+function addFreedomPlusEarnings(grouped, payments, founderIncome) {
+  for (const payment of payments) {
+    const current = ensureEarningsRow(grouped, payment.recipient);
+    if (!current) continue;
+    const amount = BigInt(payment.amount || '0');
+    current.totalLiquid += amount;
+    current.totalGross += amount;
+    current.receiptCount += 1;
+  }
+  for (const entry of founderIncome) {
+    const current = ensureEarningsRow(grouped, entry.wallet);
+    if (!current) continue;
+    const amount = BigInt(entry.amount || '0');
+    current.totalLiquid += amount;
+    current.totalGross += amount;
+    current.receiptCount += 1;
+  }
+}
+
 export async function fetchCommunityLeaderboard(limit = 20) {
   const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 100);
   const cacheKey = `community-analytics:leaderboard:${safeLimit}`;
 
   return cached(cacheKey, async () => {
-    const rows = await IndexedReceipt.find({})
-      .select('receiver liquidPaid grossAmount escrowLocked')
-      .lean();
+    const [rows, freedomPlusPayments, founderIncome] = await Promise.all([
+      IndexedReceipt.find({ chainId: env.CHAIN_ID }).select('receiver liquidPaid grossAmount escrowLocked').lean(),
+      FreedomPlusPayment.find({ chainId: env.CHAIN_ID, distributedToFounders: { $ne: true } })
+        .select('recipient amount').lean(),
+      FreedomPlusLedgerEntry.find({ chainId: env.CHAIN_ID, category: 'founder_income' })
+        .select('wallet amount').lean(),
+    ]);
 
     const grouped = new Map();
 
     for (const row of rows) {
-      const receiver = String(row.receiver || '').toLowerCase();
-      if (!receiver) continue;
-
-      if (!grouped.has(receiver)) {
-        grouped.set(receiver, {
-          address: receiver,
-          totalLiquid: 0n,
-          totalGross: 0n,
-          totalEscrow: 0n,
-          receiptCount: 0,
-        });
-      }
-
-      const current = grouped.get(receiver);
+      const current = ensureEarningsRow(grouped, row.receiver);
+      if (!current) continue;
       current.totalLiquid += BigInt(row.liquidPaid || '0');
       current.totalGross += BigInt(row.grossAmount || '0');
       current.totalEscrow += BigInt(row.escrowLocked || '0');
       current.receiptCount += 1;
     }
+    addFreedomPlusEarnings(grouped, freedomPlusPayments, founderIncome);
 
     const sorted = Array.from(grouped.values())
       .sort((a, b) => {
@@ -140,6 +171,7 @@ export async function fetchCommunityGrowth(days = 14) {
 
   return cached(cacheKey, async () => {
     const registrations = await IndexedRegistrationEvent.find({
+      chainId: env.CHAIN_ID,
       eventName: 'Registered',
       timestamp: { $gte: since },
     })
@@ -147,10 +179,18 @@ export async function fetchCommunityGrowth(days = 14) {
       .lean();
 
     const earnings = await IndexedReceipt.find({
+      chainId: env.CHAIN_ID,
       timestamp: { $gte: since },
     })
       .select('timestamp liquidPaid grossAmount')
       .lean();
+
+    const [freedomPlusPayments, founderIncome] = await Promise.all([
+      FreedomPlusPayment.find({ chainId: env.CHAIN_ID, distributedToFounders: { $ne: true }, timestamp: { $gte: since } })
+        .select('timestamp amount').lean(),
+      FreedomPlusLedgerEntry.find({ chainId: env.CHAIN_ID, category: 'founder_income', timestamp: { $gte: since } })
+        .select('timestamp amount').lean(),
+    ]);
 
     const registrationMap = new Map();
     const earningsMap = new Map();
@@ -175,6 +215,14 @@ export async function fetchCommunityGrowth(days = 14) {
       current.gross += BigInt(row.grossAmount || '0');
     }
 
+    for (const row of [...freedomPlusPayments, ...founderIncome]) {
+      const key = dateKeyLocal(row.timestamp);
+      if (!earningsMap.has(key)) earningsMap.set(key, { liquid: 0n, gross: 0n });
+      const amount = BigInt(row.amount || '0');
+      earningsMap.get(key).liquid += amount;
+      earningsMap.get(key).gross += amount;
+    }
+
     const daysArray = [];
     for (let i = safeDays - 1; i >= 0; i -= 1) {
       const d = daysAgo(i);
@@ -197,29 +245,34 @@ export async function fetchCommunityGrowth(days = 14) {
 
 export async function fetchCommunityGlobalStats() {
   return cached('community-analytics:global-stats', async () => {
-    const [totalUsers, receiptRows] = await Promise.all([
+    const [fFreedomUsers, freedomPlusUsers, receiptRows, freedomPlusPayments, founderIncome] = await Promise.all([
       IndexedRegistrationEvent.countDocuments({
+        chainId: env.CHAIN_ID,
         eventName: 'Registered',
       }),
-      IndexedReceipt.find({})
+      FreedomPlusParticipant.countDocuments({ chainId: env.CHAIN_ID, registered: true }),
+      IndexedReceipt.find({ chainId: env.CHAIN_ID })
         .select('liquidPaid grossAmount escrowLocked')
         .lean(),
+      FreedomPlusPayment.find({ chainId: env.CHAIN_ID, distributedToFounders: { $ne: true } }).select('amount').lean(),
+      FreedomPlusLedgerEntry.find({ chainId: env.CHAIN_ID, category: 'founder_income' }).select('amount').lean(),
     ]);
 
-    const totalLiquidRaw = sumRawField(receiptRows, 'liquidPaid');
-    const totalGrossRaw = sumRawField(receiptRows, 'grossAmount');
+    const freedomPlusLiquidRaw = sumRawField(freedomPlusPayments, 'amount') + sumRawField(founderIncome, 'amount');
+    const totalLiquidRaw = sumRawField(receiptRows, 'liquidPaid') + freedomPlusLiquidRaw;
+    const totalGrossRaw = sumRawField(receiptRows, 'grossAmount') + freedomPlusLiquidRaw;
     const totalEscrowRaw = sumRawField(receiptRows, 'escrowLocked');
 
     return {
-      totalUsers,
-      totalReceipts: receiptRows.length,
+      totalUsers: Math.max(fFreedomUsers, freedomPlusUsers),
+      totalReceipts: receiptRows.length + freedomPlusPayments.length + founderIncome.length,
       totalLiquid: formatRawUsdt(totalLiquidRaw),
       totalGross: formatRawUsdt(totalGrossRaw),
       totalEscrow: formatRawUsdt(totalEscrowRaw),
       generatedGross: formatRawUsdt(totalGrossRaw),
       walletCreditedLiquid: formatRawUsdt(totalLiquidRaw),
       receiptEscrowLocked: formatRawUsdt(totalEscrowRaw),
-      financialTruthSource: 'indexed_receipts',
+      financialTruthSource: 'indexed_f_freedom_receipts_plus_freedom_plus_payments',
     };
   });
 }
@@ -232,6 +285,7 @@ export async function fetchTopReferrers(limit = 20) {
     const pipeline = [
       {
         $match: {
+          chainId: env.CHAIN_ID,
           eventName: 'Registered',
           referrer: { $nin: [null, ''] },
         },
@@ -260,6 +314,7 @@ export async function fetchTopReferrers(limit = 20) {
         const referralEarnings = await IndexedReceipt.aggregate([
           {
             $match: {
+              chainId: env.CHAIN_ID,
               receiver: String(address).toLowerCase(),
               receiptType: 2,
             },
@@ -300,6 +355,7 @@ export async function fetchMostActive(limit = 20, days = 30) {
     const pipeline = [
       {
         $match: {
+          chainId: env.CHAIN_ID,
           timestamp: { $gte: sinceDate },
         },
       },
@@ -335,6 +391,7 @@ export async function fetchMostActive(limit = 20, days = 30) {
     const enrichedActive = await Promise.all(
       activeUsers.map(async (user, index) => {
         const registration = await IndexedRegistrationEvent.findOne({
+          chainId: env.CHAIN_ID,
           user: user._id,
           eventName: 'Registered',
         })

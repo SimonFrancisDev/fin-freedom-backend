@@ -14,6 +14,7 @@ import IndexedFinancialEvent from '../../models/IndexedFinancialEvent.js';
 import FreedomPlusEvent from '../../models/FreedomPlusEvent.js';
 import FreedomPlusLedgerEntry from '../../models/FreedomPlusLedgerEntry.js';
 import FreedomPlusPayment from '../../models/FreedomPlusPayment.js';
+import freedomPlusAddresses, { freedomPlusSystemVaults } from '../../blockchain/freedomPlusAddresses.js';
 
 const CACHE_TTL_MS = 15000;
 const cache = new Map();
@@ -52,40 +53,66 @@ async function fetchTreasuryBreakdown(contracts) {
 
   try {
     const freedomPlus = getFreedomPlusContracts(contracts.provider);
-    const [fNft, fOps] = await Promise.all([
-      safeRpcCall(() => levelManager.nftPool()),
-      safeRpcCall(() => levelManager.operationsWallet()),
+    const readAddress = async (read, fallback = '') => {
+      try {
+        const value = await safeRpcCall(read);
+        return ethers.isAddress(value) ? value : fallback;
+      } catch {
+        return fallback;
+      }
+    };
+    const [fNft, fOps, plusNft, plusOps] = await Promise.all([
+      readAddress(() => levelManager.nftPool()),
+      readAddress(() => levelManager.operationsWallet()),
+      readAddress(() => freedomPlus?.settlementRouter?.nftPoolVault(), freedomPlusSystemVaults.nftPoolVault || freedomPlusAddresses.nftPoolVault),
+      readAddress(() => freedomPlus?.settlementRouter?.operationsVault(), freedomPlusSystemVaults.operationsVault || freedomPlusAddresses.operationsVault),
     ]);
     const nftAddresses = [...new Set([
       String(fNft).toLowerCase(),
-      String(freedomPlus?.nftPoolVault?.target || '').toLowerCase(),
+      String(plusNft || freedomPlus?.nftPoolVault?.target || '').toLowerCase(),
       ...parseAddressList(process.env.LEGACY_NFT_POOL_VAULT_ADDRESSES),
     ].filter(Boolean))];
     const operationsAddresses = [...new Set([
       String(fOps).toLowerCase(),
-      String(freedomPlus?.operationsVault?.target || '').toLowerCase(),
+      String(plusOps || freedomPlus?.operationsVault?.target || '').toLowerCase(),
       ...parseAddressList(process.env.LEGACY_OPERATIONS_VAULT_ADDRESSES),
     ].filter(Boolean))];
-    const nftBalances = await Promise.all(nftAddresses.map((address) => safeBalanceOf(usdt, address)));
-    const operationsBalances = await Promise.all(
-      operationsAddresses.map((address) => safeBalanceOf(usdt, address))
-    );
-    const nftRaw = nftBalances.reduce((total, value) => total + BigInt(value || 0), 0n);
-    const operationsRaw = operationsBalances.reduce(
-      (total, value) => total + BigInt(value || 0),
-      0n
-    );
+    const readBalance = async (address) => {
+      try {
+        const value = await safeRpcCall(() => usdt.balanceOf(address));
+        return { address, ok: true, value: BigInt(value || 0) };
+      } catch (error) {
+        return { address, ok: false, value: 0n, error: error.message };
+      }
+    };
+    const nftBalances = await Promise.all(nftAddresses.map(readBalance));
+    const operationsBalances = await Promise.all(operationsAddresses.map(readBalance));
+    const nftBalanceVerified = nftAddresses.length > 0 && nftBalances.every((entry) => entry.ok);
+    const operationsBalanceVerified = operationsAddresses.length > 0
+      && operationsBalances.every((entry) => entry.ok);
+    const nftRaw = nftBalances.reduce((total, entry) => total + entry.value, 0n);
+    const operationsRaw = operationsBalances.reduce((total, entry) => total + entry.value, 0n);
 
     return {
-      nftPool: formatUsdt(nftRaw),
-      operations: formatUsdt(operationsRaw),
-      nftPoolRaw: nftRaw.toString(),
-      operationsRaw: operationsRaw.toString(),
+      nftPool: nftBalanceVerified ? formatUsdt(nftRaw) : null,
+      operations: operationsBalanceVerified ? formatUsdt(operationsRaw) : null,
+      nftPoolRaw: nftBalanceVerified ? nftRaw.toString() : null,
+      operationsRaw: operationsBalanceVerified ? operationsRaw.toString() : null,
+      nftPoolBalanceVerified: nftBalanceVerified,
+      operationsBalanceVerified,
       nftPoolAddresses: nftAddresses,
       operationsAddresses,
+      balanceReadErrors: [...nftBalances, ...operationsBalances]
+        .filter((entry) => !entry.ok)
+        .map(({ address, error }) => ({ address, error })),
     };
-  } catch {
-    return { nftPool: '0.00', operations: '0.00', nftPoolRaw: '0', operationsRaw: '0' };
+  } catch (error) {
+    console.error('Treasury balance reconciliation failed:', error);
+    return {
+      nftPool: null, operations: null, nftPoolRaw: null, operationsRaw: null,
+      nftPoolBalanceVerified: false, operationsBalanceVerified: false,
+      nftPoolAddresses: [], operationsAddresses: [], readError: error.message,
+    };
   }
 }
 
@@ -588,10 +615,19 @@ export async function fetchCommunitySummary() {
     ]);
 
     const visibleCoreBalanceRaw = await fetchVisibleCoreBalance(contracts, financialMetrics);
-    const nftPoolDistributedRaw = financialMetrics.nftDistributedRaw;
+    const nftBalanceVerified = treasury?.nftPoolBalanceVerified === true;
+    const operationsBalanceVerified = treasury?.operationsBalanceVerified === true;
+    const nftPoolLiveBalanceRaw = toBigIntSafe(treasury?.nftPoolRaw);
+    const reconciledNftOutflowRaw = nftBalanceVerified
+      && financialMetrics.nftPoolReceivedRaw > nftPoolLiveBalanceRaw
+      ? financialMetrics.nftPoolReceivedRaw - nftPoolLiveBalanceRaw
+      : 0n;
+    const nftPoolDistributedRaw = financialMetrics.nftDistributedRaw > reconciledNftOutflowRaw
+      ? financialMetrics.nftDistributedRaw
+      : reconciledNftOutflowRaw;
     const operationsLiveBalanceRaw = toBigIntSafe(treasury?.operationsRaw);
     const reconciledOperationsOutflowRaw =
-      financialMetrics.operationsReceivedRaw > operationsLiveBalanceRaw
+      operationsBalanceVerified && financialMetrics.operationsReceivedRaw > operationsLiveBalanceRaw
         ? financialMetrics.operationsReceivedRaw - operationsLiveBalanceRaw
         : 0n;
     const operationsUtilizedRaw =
@@ -607,8 +643,8 @@ export async function fetchCommunitySummary() {
         visibleCoreBalanceUsdt: formatUsdt(visibleCoreBalanceRaw),
 
         // Live wallet balances.
-        nftPool: treasury?.nftPool || '0.00',
-        operations: treasury?.operations || '0.00',
+        nftPool: treasury?.nftPool ?? null,
+        operations: treasury?.operations ?? null,
 
         // New indexed/global financial truth.
         totalGeneratedVolume: formatUsdt(financialMetrics.totalGeneratedRaw),
@@ -634,19 +670,23 @@ export async function fetchCommunitySummary() {
         operationsAllocated: formatUsdt(financialMetrics.operationsReceivedRaw),
         nftPoolDistributed: formatUsdt(nftPoolDistributedRaw),
         operationsUtilized: formatUsdt(operationsUtilizedRaw),
-        nftPoolLiveBalance: treasury?.nftPool || '0.00',
-        operationsLiveBalance: treasury?.operations || '0.00',
+        nftPoolLiveBalance: treasury?.nftPool ?? null,
+        operationsLiveBalance: treasury?.operations ?? null,
+        nftPoolBalanceVerified: nftBalanceVerified,
+        operationsBalanceVerified,
         nftPoolAddresses: treasury?.nftPoolAddresses || [],
         operationsAddresses: treasury?.operationsAddresses || [],
         nftRewardPool: {
           totalInflow: formatUsdt(financialMetrics.nftPoolReceivedRaw),
           totalDistributed: formatUsdt(nftPoolDistributedRaw),
-          currentBalance: treasury?.nftPool || '0.00',
+          currentBalance: treasury?.nftPool ?? null,
+          balanceVerified: nftBalanceVerified,
         },
         devOperations: {
           totalInflow: formatUsdt(financialMetrics.operationsReceivedRaw),
           totalUtilized: formatUsdt(operationsUtilizedRaw),
-          currentBalance: treasury?.operations || '0.00',
+          currentBalance: treasury?.operations ?? null,
+          balanceVerified: operationsBalanceVerified,
         },
         recycleAllocated: formatUsdt(financialMetrics.recycleAllocatedRaw),
         recyclePaidLiquid: formatUsdt(financialMetrics.recyclePaidLiquidRaw),
@@ -665,8 +705,12 @@ export async function fetchCommunitySummary() {
           systemChargeTotal: financialMetrics.systemChargeTruthSource,
           nftPoolAllocated: financialMetrics.systemChargeTruthSource,
           operationsAllocated: financialMetrics.systemChargeTruthSource,
-          nftPoolDistributed: 'indexed_reward_claim_events',
-          operationsUtilized: 'indexed_withdrawals_or_accumulated_minus_live_balance',
+          nftPoolDistributed: nftBalanceVerified
+            ? 'indexed_claims_or_accumulated_minus_verified_live_balance'
+            : 'indexed_claim_events_only_live_balance_unavailable',
+          operationsUtilized: operationsBalanceVerified
+            ? 'indexed_withdrawals_or_accumulated_minus_verified_live_balance'
+            : 'indexed_withdrawals_only_live_balance_unavailable',
           nftPoolLiveBalance: 'live_wallet_balance',
           operationsLiveBalance: 'live_wallet_balance',
           recycleAllocated: 'indexed_activation_summaries',
