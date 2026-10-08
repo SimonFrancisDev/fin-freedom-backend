@@ -218,7 +218,7 @@ async function syncTargetsCombined(provider, chainId, entries, confirmedBlock) {
 export async function syncFreedomPlusOnce() {
   if (!env.FREEDOM_PLUS_ENABLED) return { enabled: false, targets: [] };
   const provider = getProvider();
-  const network = await provider.getNetwork();
+  const network = await safeRpcCall((rpc) => rpc.getNetwork());
   const chainId = Number(network.chainId);
   if (chainId !== Number(env.CHAIN_ID)) {
     throw new Error(`Freedom-Plus chain mismatch: expected ${env.CHAIN_ID}, received ${chainId}`);
@@ -240,7 +240,7 @@ export async function syncNftMembershipThrough(cutoffBlock) {
   running = true;
   try {
     const provider = getProvider();
-    const chainId = Number((await provider.getNetwork()).chainId);
+    const chainId = Number((await safeRpcCall((rpc) => rpc.getNetwork())).chainId);
     if (chainId !== Number(env.CHAIN_ID)) throw new Error('NFT catchup chain mismatch');
     const state = await FreedomPlusSyncState.findOne({ chainId, contractKey: 'nftMembership' }).lean();
     const start = Math.max(Number(env.FREEDOM_PLUS_START_BLOCK), Number(state?.lastProcessedBlock ?? -1) + 1);
@@ -410,6 +410,11 @@ export function notifyFreedomPlusRealtimeEvent(contractKey, log) {
       blockNumber: Number(log.blockNumber || 0),
     });
   }
+  scheduleConfirmedRecovery();
+}
+
+export function requestFreedomPlusConfirmedRecovery(reason = 'shared-reconnect') {
+  console.log('[FREEDOM_PLUS_CONFIRMED_RECOVERY_REQUESTED]', { reason });
   scheduleConfirmedRecovery();
 }
 

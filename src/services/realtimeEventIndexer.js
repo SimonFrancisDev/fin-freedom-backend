@@ -2,7 +2,10 @@ import { Contract, WebSocketProvider } from 'ethers';
 import env from '../config/env.js';
 import { getContracts } from '../blockchain/contracts.js';
 import { getFreedomPlusContractEntries } from '../blockchain/freedomPlusContracts.js';
-import { notifyFreedomPlusRealtimeEvent } from './freedomPlusIndexerService.js';
+import {
+  notifyFreedomPlusRealtimeEvent,
+  requestFreedomPlusConfirmedRecovery,
+} from './freedomPlusIndexerService.js';
 
 import {
   getBlockCached,
@@ -13,6 +16,7 @@ import {
   saveEscrowLog,
   saveActivationSummaryLog,
   saveFinancialEventLog,
+  runConfirmedIndexerRecovery,
 } from './indexerService.js';
 
 let realtimeStarted = false;
@@ -546,6 +550,7 @@ function attachSocketHandlers(provider) {
 }
 
 async function connectRealtimeProvider() {
+  const recoveringConnection = reconnecting;
   const wsUrls = getWsUrls();
 
   if (wsUrls.length === 0) {
@@ -614,6 +619,32 @@ async function connectRealtimeProvider() {
     freedomPlusListeners,
     sharedConnection: freedomPlusListeners > 0,
   });
+
+  const recoveryReason = recoveringConnection
+    ? 'websocket-reconnect'
+    : 'websocket-startup';
+
+  runConfirmedIndexerRecovery({
+    reason: recoveryReason,
+    processRole: 'worker',
+  })
+    .then((result) => {
+      console.log('[REALTIME_EVENT_CONFIRMED_RECOVERY_COMPLETE]', {
+        reason: recoveryReason,
+        safeBlock: result?.safeBlock ?? null,
+        skipped: result?.skipped === true,
+      });
+    })
+    .catch((error) => {
+      console.error('[REALTIME_EVENT_CONFIRMED_RECOVERY_FAILED]', {
+        reason: recoveryReason,
+        message: buildErrorMessage(error),
+      });
+    });
+
+  if (recoveringConnection && freedomPlusListeners > 0) {
+    requestFreedomPlusConfirmedRecovery('shared-websocket-reconnect');
+  }
 }
 
 export async function startRealtimeEventIndexer() {

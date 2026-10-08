@@ -1,5 +1,5 @@
 import SyncState from '../../models/SyncState.js';
-import { getProvider, safeRpcCall } from '../../blockchain/provider.js';
+import { safeRpcCall } from '../../blockchain/provider.js';
 
 const RESPONSE_CACHE_TTL_MS = 5000;
 const inflightCache = new Map();
@@ -48,10 +48,8 @@ async function cached(key, fn, ttlMs = RESPONSE_CACHE_TTL_MS) {
 
 export async function fetchIndexerStatus() {
   return cached('sync:indexer-status', async () => {
-    const provider = getProvider();
-
     const [latestBlock, syncStates] = await Promise.all([
-      safeRpcCall(() => provider.getBlockNumber()).catch(() => 0),
+      safeRpcCall((provider) => provider.getBlockNumber()).catch(() => 0),
       SyncState.find({})
         .sort({ key: 1 })
         .lean(),

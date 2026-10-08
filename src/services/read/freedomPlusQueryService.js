@@ -10,7 +10,7 @@ import FreedomPlusSyncState from '../../models/FreedomPlusSyncState.js';
 import FreedomPlusLedgerEntry from '../../models/FreedomPlusLedgerEntry.js';
 import IndexedRegistrationEvent from '../../models/IndexedRegistrationEvent.js';
 import ReferralCode from '../../models/ReferralCode.js';
-import { getProvider } from '../../blockchain/provider.js';
+import { getProvider, safeRpcCall } from '../../blockchain/provider.js';
 import { getContracts } from '../../blockchain/contracts.js';
 import {
   getFreedomPlusContractEntries,
@@ -47,8 +47,8 @@ export async function freedomPlusReconciliation() {
   const contracts = getFreedomPlusContracts();
   const provider = getProvider();
   const [head, chainParticipants, databaseParticipants, rawPositions, positions, rawPayments, payments, sync, latestEvent] = await Promise.all([
-    provider.getBlockNumber(),
-    contracts.registration.registeredCount(),
+    safeRpcCall((rpc) => rpc.getBlockNumber()),
+    safeRpcCall((rpc) => contracts.registration.connect(rpc).registeredCount()),
     FreedomPlusParticipant.countDocuments({ chainId: env.CHAIN_ID, registered: true }),
     FreedomPlusEvent.countDocuments({ chainId: env.CHAIN_ID, eventName: 'PositionRecorded' }),
     FreedomPlusPosition.countDocuments({ chainId: env.CHAIN_ID }),
@@ -177,9 +177,13 @@ export async function freedomPlusParticipant(address) {
   let gatewaySource = 'indexed';
   if (!gatewayRegistered || !gatewayLevelOneActive || !gatewaySponsor || gatewaySponsor.toLowerCase() === ZeroAddress) {
     try {
-      const registration = getContracts().registration;
+      const contracts = getContracts();
+      const registration = contracts.registration;
       const [registered, levelOneActive, sponsor, id1Wallet] = await Promise.all([
-        registration.isRegistered(normalized), registration.isLevelActivated(normalized, 1), registration.getReferrer(normalized), getContracts().levelManager.id1Wallet(),
+        safeRpcCall((provider) => registration.connect(provider).isRegistered(normalized)),
+        safeRpcCall((provider) => registration.connect(provider).isLevelActivated(normalized, 1)),
+        safeRpcCall((provider) => registration.connect(provider).getReferrer(normalized)),
+        safeRpcCall((provider) => contracts.levelManager.connect(provider).id1Wallet()),
       ]);
       gatewayRegistered ||= Boolean(registered);
       gatewayLevelOneActive ||= Boolean(levelOneActive);

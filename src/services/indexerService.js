@@ -2171,6 +2171,17 @@ export async function runIndexerOnce() {
   return runIndexerPass();
 }
 
+export async function runConfirmedIndexerRecovery(options = {}) {
+  const reason = options.reason || 'confirmed-recovery';
+
+  if (stopRequested) {
+    return { skipped: true, reason: 'stop-requested' };
+  }
+
+  ensureIndexerOwner(options.processRole || 'worker');
+  return runIndexerPassGuarded(reason);
+}
+
 async function runIndexerPassGuarded(reason = 'manual') {
   if (passInFlightPromise) {
     pendingImmediatePass = true;

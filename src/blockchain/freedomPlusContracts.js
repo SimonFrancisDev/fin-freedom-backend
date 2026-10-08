@@ -90,16 +90,16 @@ export async function verifyFreedomPlusContracts() {
     routerNftPoolVault,
     routerOperationsVault,
   ] = await Promise.all([
-    safeRpcCall(() => contracts.registration.levelManager()),
-    safeRpcCall(() => contracts.levelManager.registration()),
-    safeRpcCall(() => contracts.levelManager.settlementRouter()),
-    safeRpcCall(() => contracts.tokenController.levelManager()),
-    safeRpcCall(() => contracts.settlementRouter.configurationLocked()),
-    safeRpcCall(() => contracts.nftMembership.fpt()),
-    safeRpcCall(() => contracts.nftRewardDistributor.vault()),
-    safeRpcCall(() => contracts.nftPoolVault.distributor()),
-    safeRpcCall(() => contracts.settlementRouter.nftPoolVault()),
-    safeRpcCall(() => contracts.settlementRouter.operationsVault()),
+    safeRpcCall((provider) => contracts.registration.connect(provider).levelManager()),
+    safeRpcCall((provider) => contracts.levelManager.connect(provider).registration()),
+    safeRpcCall((provider) => contracts.levelManager.connect(provider).settlementRouter()),
+    safeRpcCall((provider) => contracts.tokenController.connect(provider).levelManager()),
+    safeRpcCall((provider) => contracts.settlementRouter.connect(provider).configurationLocked()),
+    safeRpcCall((provider) => contracts.nftMembership.connect(provider).fpt()),
+    safeRpcCall((provider) => contracts.nftRewardDistributor.connect(provider).vault()),
+    safeRpcCall((provider) => contracts.nftPoolVault.connect(provider).distributor()),
+    safeRpcCall((provider) => contracts.settlementRouter.connect(provider).nftPoolVault()),
+    safeRpcCall((provider) => contracts.settlementRouter.connect(provider).operationsVault()),
   ]);
   assertAddress('registration.levelManager', registrationManager, addresses.levelManager);
   assertAddress('levelManager.registration', managerRegistration, addresses.registration);
@@ -115,14 +115,14 @@ export async function verifyFreedomPlusContracts() {
   const orbitKeys = ['p39Orbit', 'p14Orbit', 'p12Orbit', 'p6Orbit', 'p4Orbit', 'p3Orbit'];
   for (let type = 0; type < orbitKeys.length; type += 1) {
     const key = orbitKeys[type];
-    assertAddress(`settlementRouter.orbitByType(${type})`, await safeRpcCall(() => contracts.settlementRouter.orbitByType(type)), addresses[key]);
-    assertAddress(`${key}.manager`, await safeRpcCall(() => contracts[key].manager()), addresses.settlementRouter);
+    assertAddress(`settlementRouter.orbitByType(${type})`, await safeRpcCall((provider) => contracts.settlementRouter.connect(provider).orbitByType(type)), addresses[key]);
+    assertAddress(`${key}.manager`, await safeRpcCall((provider) => contracts[key].connect(provider).manager()), addresses.settlementRouter);
   }
 
   const owners = {};
   for (const [key, contract] of entries) {
     if (typeof contract.owner !== 'function') continue;
-    owners[key] = await safeRpcCall(() => contract.owner());
+    owners[key] = await safeRpcCall((provider) => contract.connect(provider).owner());
     if (env.MULTISIG_ADDRESS) assertAddress(`${key}.owner`, owners[key], env.MULTISIG_ADDRESS);
   }
   return {

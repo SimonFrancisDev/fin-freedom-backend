@@ -81,7 +81,7 @@ export function hasOptionalContracts() {
 async function safeOptionalOwner(contract) {
   try {
     if (!contract || typeof contract.owner !== 'function') return 'N/A';
-    return await safeRpcCall(() => contract.owner());
+    return await safeRpcCall((provider) => contract.connect(provider).owner());
   } catch {
     return 'N/A';
   }
@@ -116,21 +116,21 @@ export async function verifyContracts() {
     fgtrTokenOwner,
     tokenControllerOwner,
   ] = await Promise.all([
-    safeRequiredCall('levelManager.owner', () => contracts.levelManager.owner()),
-    safeRequiredCall('levelManager.guardian', () => contracts.levelManager.guardian()),
-    safeRequiredCall('levelManager.id1Wallet', () => contracts.levelManager.id1Wallet()),
+    safeRequiredCall('levelManager.owner', (provider) => contracts.levelManager.connect(provider).owner()),
+    safeRequiredCall('levelManager.guardian', (provider) => contracts.levelManager.connect(provider).guardian()),
+    safeRequiredCall('levelManager.id1Wallet', (provider) => contracts.levelManager.connect(provider).id1Wallet()),
 
-    safeRequiredCall('p4Orbit.owner', () => contracts.p4Orbit.owner()),
-    safeRequiredCall('p4Orbit.levelManager', () => contracts.p4Orbit.levelManager()),
+    safeRequiredCall('p4Orbit.owner', (provider) => contracts.p4Orbit.connect(provider).owner()),
+    safeRequiredCall('p4Orbit.levelManager', (provider) => contracts.p4Orbit.connect(provider).levelManager()),
 
-    safeRequiredCall('p12Orbit.owner', () => contracts.p12Orbit.owner()),
-    safeRequiredCall('p12Orbit.levelManager', () => contracts.p12Orbit.levelManager()),
+    safeRequiredCall('p12Orbit.owner', (provider) => contracts.p12Orbit.connect(provider).owner()),
+    safeRequiredCall('p12Orbit.levelManager', (provider) => contracts.p12Orbit.connect(provider).levelManager()),
 
-    safeRequiredCall('p39Orbit.owner', () => contracts.p39Orbit.owner()),
-    safeRequiredCall('p39Orbit.levelManager', () => contracts.p39Orbit.levelManager()),
+    safeRequiredCall('p39Orbit.owner', (provider) => contracts.p39Orbit.connect(provider).owner()),
+    safeRequiredCall('p39Orbit.levelManager', (provider) => contracts.p39Orbit.connect(provider).levelManager()),
 
-    safeRequiredCall('registration.owner', () => contracts.registration.owner()),
-    safeRequiredCall('escrow.owner', () => contracts.escrow.owner()),
+    safeRequiredCall('registration.owner', (provider) => contracts.registration.connect(provider).owner()),
+    safeRequiredCall('escrow.owner', (provider) => contracts.escrow.connect(provider).owner()),
 
     safeOptionalOwner(contracts.usdt),
     safeOptionalOwner(contracts.fgtToken),

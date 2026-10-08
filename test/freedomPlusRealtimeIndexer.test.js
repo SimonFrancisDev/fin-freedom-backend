@@ -22,6 +22,18 @@ const contractsSource = await readFile(
   new URL('../src/blockchain/freedomPlusContracts.js', import.meta.url),
   'utf8'
 );
+const baseContractsSource = await readFile(
+  new URL('../src/blockchain/contracts.js', import.meta.url),
+  'utf8'
+);
+const syncQuerySource = await readFile(
+  new URL('../src/services/read/syncQueryService.js', import.meta.url),
+  'utf8'
+);
+const baseIndexerSource = await readFile(
+  new URL('../src/services/indexerService.js', import.meta.url),
+  'utf8'
+);
 
 function functionBody(source, name) {
   const start = source.indexOf(`async function ${name}(`);
@@ -45,6 +57,28 @@ test('Freedom-Plus shares the F-Freedom WebSocket provider', () => {
   assert.doesNotMatch(shared, /new WebSocketProvider|connectFreedomPlusRealtime/);
   assert.match(shared, /mode: 'realtime-shared'/);
   assert.match(indexerSource, /export function notifyFreedomPlusRealtimeEvent/);
+});
+
+test('shared WebSocket reconnect requests confirmed Freedom-Plus catch-up', () => {
+  const connect = functionBody(realtimeSource, 'connectRealtimeProvider');
+
+  assert.match(connect, /const recoveringConnection = reconnecting/);
+  assert.match(
+    connect,
+    /requestFreedomPlusConfirmedRecovery\('shared-websocket-reconnect'\)/
+  );
+  assert.match(indexerSource, /export function requestFreedomPlusConfirmedRecovery/);
+});
+
+test('shared WebSocket startup and reconnect request one-shot base catch-up', () => {
+  const connect = functionBody(realtimeSource, 'connectRealtimeProvider');
+
+  assert.match(connect, /runConfirmedIndexerRecovery\(\{/);
+  assert.match(connect, /'websocket-startup'/);
+  assert.match(connect, /'websocket-reconnect'/);
+  assert.doesNotMatch(connect, /startIndexer|setInterval/);
+  assert.match(baseIndexerSource, /export async function runConfirmedIndexerRecovery/);
+  assert.match(baseIndexerSource, /return runIndexerPassGuarded\(reason\)/);
 });
 
 test('blockchain startup does not consume a second WebSocket connection', () => {
@@ -78,17 +112,31 @@ test('HTTP rate limiting uses a serialized sliding-window gate', () => {
   assert.match(limiter, /1000 - \(now - lastCallTimestamps\[0\]\)/);
 });
 
-test('Freedom-Plus startup verification routes every RPC read through the limiter', () => {
+test('contract verification retries rebind reads to the selected provider', () => {
   const start = contractsSource.indexOf('export async function verifyFreedomPlusContracts');
   const verification = contractsSource.slice(start);
+  const baseStart = baseContractsSource.indexOf('export async function verifyContracts');
+  const baseVerification = baseContractsSource.slice(baseStart);
 
   assert.notEqual(start, -1);
+  assert.notEqual(baseStart, -1);
   assert.doesNotMatch(verification, /await contracts\.provider\.getCode/);
   assert.doesNotMatch(verification, /await contracts\[[^\]]+\]\.manager\(/);
   assert.doesNotMatch(verification, /await contract\.owner\(/);
+  assert.doesNotMatch(verification, /safeRpcCall\(\(\) =>/);
+  assert.doesNotMatch(baseVerification, /safeRequiredCall\([^\n]+, \(\) =>/);
   assert.match(verification, /safeRpcCall\(\(provider\) => provider\.getCode/);
-  assert.match(verification, /safeRpcCall\(\(\) => contracts\.settlementRouter\.orbitByType/);
-  assert.match(verification, /safeRpcCall\(\(\) => contract\.owner\(\)\)/);
+  assert.match(verification, /contracts\.settlementRouter\.connect\(provider\)\.orbitByType/);
+  assert.match(verification, /contract\.connect\(provider\)\.owner\(\)/);
+  assert.match(baseVerification, /contracts\.levelManager\.connect\(provider\)\.owner\(\)/);
+});
+
+test('indexer status retries block reads with the selected provider', () => {
+  assert.match(
+    syncQuerySource,
+    /safeRpcCall\(\(provider\) => provider\.getBlockNumber\(\)\)/
+  );
+  assert.doesNotMatch(syncQuerySource, /safeRpcCall\(\(\) => provider\.getBlockNumber/);
 });
 
 test('realtime reconciliation accepts quiet checkpoints at the latest indexed event', () => {
