@@ -14,7 +14,6 @@ import OrbitCycleSnapshot from '../../models/OrbitCycleSnapshot.js';
 import { buildOrbitLevelSnapshot } from '../snapshots/orbitLevelSnapshotBuilder.js';
 import { buildOrbitPositionSnapshot } from '../snapshots/orbitPositionSnapshotBuilder.js';
 import { buildOrbitCycleSnapshot } from '../snapshots/orbitCycleSnapshotBuilder.js';
-import { enrichOrbitLevelSnapshot } from '../snapshots/orbitLevelSnapshotEnricher.js';
 import { enrichWalletIdentities } from './identityEnrichmentService.js';
 
 import env from '../../config/env.js';
@@ -158,7 +157,9 @@ async function resolveActiveLevels(normalizedAddress) {
     LEVELS_FETCH_CONCURRENCY,
     async (level) => {
       const contractActive = await safeOptionalRpc(() =>
-        contracts.registration.isLevelActivated(normalizedAddress, level)
+        safeRpcCall((provider) =>
+          contracts.registration.connect(provider).isLevelActivated(normalizedAddress, level)
+        )
       );
       const indexedActive = hasIndexedLevelActivation(activationByLevel, level);
       const isActive = contractActive === true || (contractActive !== false && indexedActive) || indexedActive;
@@ -292,14 +293,18 @@ function getSnapshotBuiltAtMs(snapshot) {
   return Number.isFinite(builtMs) ? builtMs : 0;
 }
 
-async function rebuildAndEnrichLevelSnapshot(address, level) {
-  await buildOrbitLevelSnapshot(address, level);
-  await enrichOrbitLevelSnapshot(address, level);
-
-  return OrbitLevelSnapshot.findOne({
+async function rebuildAndEnrichLevelSnapshot(address, level, latestActivity = null) {
+  const orbitType = levelToOrbitType[level];
+  const activity = latestActivity || await getLatestIndexedActivityForLevel(
     address,
     level,
-  }).lean();
+    orbitType
+  );
+
+  return buildOrbitLevelSnapshot(address, level, {
+    builtFromBlock: Number(activity?.latestBlock || 0),
+    freshnessBlock: Number(activity?.latestBlock || 0),
+  });
 }
 
 async function rebuildPositionSnapshot(address, level, position) {
@@ -681,7 +686,11 @@ async function tryCall(contract, methodNames, args) {
   for (const methodName of methodNames) {
     if (typeof contract?.[methodName] === 'function') {
       try {
-        const result = await safeOptionalRpc(() => contract[methodName](...args));
+        const result = await safeOptionalRpc(() =>
+          safeRpcCall((provider) =>
+            contract.connect(provider)[methodName](...args)
+          )
+        );
         return { ok: true, methodName, result };
       } catch {
         // continue
@@ -913,7 +922,9 @@ async function fetchLiveActivationData(orbitContract, address, level, position) 
   }
 
   const result = await safeOptionalRpc(() =>
-    orbitContract.getPositionActivationData(address, level, position)
+    safeRpcCall((provider) =>
+      orbitContract.connect(provider).getPositionActivationData(address, level, position)
+    )
   );
 
   if (!result) {
@@ -947,11 +958,13 @@ async function fetchHistoricalActivationData(
   }
 
   const result = await safeOptionalRpc(() =>
-    orbitContract.getHistoricalPositionActivationData(
-      address,
-      level,
-      cycleNumber,
-      position
+    safeRpcCall((provider) =>
+      orbitContract.connect(provider).getHistoricalPositionActivationData(
+        address,
+        level,
+        cycleNumber,
+        position
+      )
     )
   );
 
@@ -1198,7 +1211,13 @@ async function buildLivePositionSnapshot(address, level, positionNumber, preload
 
   const [position, activationData, ruleView] = await Promise.all([
     safeOptionalRpc(() =>
-      orbitContract.getPosition(normalizedAddress, level, positionNumber)
+      safeRpcCall((provider) =>
+        orbitContract.connect(provider).getPosition(
+          normalizedAddress,
+          level,
+          positionNumber
+        )
+      )
     ),
     fetchLiveActivationData(orbitContract, normalizedAddress, level, positionNumber),
     fetchLiveRuleView(orbitContract, normalizedAddress, level, positionNumber),
@@ -1432,15 +1451,17 @@ export const fetchOrbitLevelSnapshot = safeApiResponse(async function fetchOrbit
       const hasNewIndexedActivity = hasIndexedActivityAdvanced(snapshot, latestActivity);
       const isStale = isSnapshotStale(snapshot, LEVEL_SNAPSHOT_TTL_MS);
 
-      if (isMissing) {
+      if (isMissing || hasNewIndexedActivity) {
         logDebug('[LEVEL_SNAPSHOT_MISSING_REBUILD]', {
           address: normalizedAddress,
           level,
+          reason: isMissing ? 'missing' : 'indexed-activity-advanced',
         });
 
         snapshot = await rebuildAndEnrichLevelSnapshot(
           normalizedAddress,
-          level
+          level,
+          latestActivity
         );
 
         if (!snapshot) {
@@ -1486,7 +1507,7 @@ export const fetchOrbitLevelSnapshot = safeApiResponse(async function fetchOrbit
         ).catch(() => {});
       }
 
-      if (isIncomplete || hasNewIndexedActivity || isStale) {
+      if (isIncomplete || isStale) {
         refreshLevelSnapshotInBackground(normalizedAddress, level);
       }
 
@@ -2087,8 +2108,8 @@ async function getCurrentEscrowLockSummary(address, escrowMetrics = null) {
     try {
       if (level < 10 && contracts?.levelManager?.getAutoUpgradeStatus) {
         const [requiredAmount, currentLocked, remainingAmount, nextActive] =
-          await safeRpcCall(() =>
-            contracts.levelManager.getAutoUpgradeStatus(normalizedAddress, level)
+          await safeRpcCall((provider) =>
+            contracts.levelManager.connect(provider).getAutoUpgradeStatus(normalizedAddress, level)
           );
 
         requiredRaw = toBigIntSafe(requiredAmount);

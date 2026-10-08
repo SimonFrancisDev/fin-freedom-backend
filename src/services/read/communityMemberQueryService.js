@@ -139,7 +139,9 @@ async function resolveHighestActiveLevel(registration, normalizedAddress) {
 
   const levelStates = await Promise.all(
     Array.from({ length: 10 }, (_, index) =>
-      tryRpc(() => registration.isLevelActivated(normalizedAddress, index + 1), false)
+      tryRpc((provider) =>
+        registration.connect(provider).isLevelActivated(normalizedAddress, index + 1),
+      false)
     )
   );
 
@@ -179,11 +181,15 @@ async function readLockedBalance(tokenContract, normalizedAddress) {
   if (!tokenContract) return 0n;
 
   if (typeof tokenContract.lockedBalanceOf === 'function') {
-    return tryRpc(() => tokenContract.lockedBalanceOf(normalizedAddress), 0n);
+    return tryRpc((provider) =>
+      tokenContract.connect(provider).lockedBalanceOf(normalizedAddress),
+    0n);
   }
 
   if (typeof tokenContract.lockedBalances === 'function') {
-    return tryRpc(() => tokenContract.lockedBalances(normalizedAddress), 0n);
+    return tryRpc((provider) =>
+      tokenContract.connect(provider).lockedBalances(normalizedAddress),
+    0n);
   }
 
   return 0n;
@@ -196,7 +202,9 @@ async function readTokenBalancesWithFallback(contracts, normalizedAddress) {
   const tokenController = contracts?.freedomTokenController;
 
   if (tokenController?.getFGTBalances) {
-    const result = await tryRpc(() => tokenController.getFGTBalances(normalizedAddress), null);
+    const result = await tryRpc((provider) =>
+      tokenController.connect(provider).getFGTBalances(normalizedAddress),
+    null);
     if (result) {
       fgtBalances = [
         BigInt(result?.[0] ?? 0),
@@ -207,14 +215,18 @@ async function readTokenBalancesWithFallback(contracts, normalizedAddress) {
   }
 
   if (fgtBalances[0] === 0n && contracts?.fgtToken?.balanceOf) {
-    const total = await tryRpc(() => contracts.fgtToken.balanceOf(normalizedAddress), 0n);
+    const total = await tryRpc((provider) =>
+      contracts.fgtToken.connect(provider).balanceOf(normalizedAddress),
+    0n);
     const locked = await readLockedBalance(contracts.fgtToken, normalizedAddress);
     const available = total >= locked ? total - locked : 0n;
     fgtBalances = [BigInt(total || 0), BigInt(locked || 0), BigInt(available || 0)];
   }
 
   if (tokenController?.getFGTrBalances) {
-    const result = await tryRpc(() => tokenController.getFGTrBalances(normalizedAddress), null);
+    const result = await tryRpc((provider) =>
+      tokenController.connect(provider).getFGTrBalances(normalizedAddress),
+    null);
     if (result) {
       fgtrBalances = [
         BigInt(result?.[0] ?? 0),
@@ -225,7 +237,9 @@ async function readTokenBalancesWithFallback(contracts, normalizedAddress) {
   }
 
   if (fgtrBalances[0] === 0n && contracts?.fgtrToken?.balanceOf) {
-    const total = await tryRpc(() => contracts.fgtrToken.balanceOf(normalizedAddress), 0n);
+    const total = await tryRpc((provider) =>
+      contracts.fgtrToken.connect(provider).balanceOf(normalizedAddress),
+    0n);
     const locked = await readLockedBalance(contracts.fgtrToken, normalizedAddress);
     const available = total >= locked ? total - locked : 0n;
     fgtrBalances = [BigInt(total || 0), BigInt(locked || 0), BigInt(available || 0)];
@@ -249,11 +263,17 @@ export async function fetchCommunityMemberSummary(address) {
           .select('liquidPaid escrowLocked grossAmount')
           .lean(),
         readTokenBalancesWithFallback(contracts, normalizedAddress),
-        tryRpc(() => registration.isRegistered(normalizedAddress), false),
-        tryRpc(() => registration.getReferrer(normalizedAddress), ethers.ZeroAddress),
+        tryRpc((provider) =>
+          registration.connect(provider).isRegistered(normalizedAddress),
+        false),
+        tryRpc((provider) =>
+          registration.connect(provider).getReferrer(normalizedAddress),
+        ethers.ZeroAddress),
         resolveHighestActiveLevel(registration, normalizedAddress),
         sumReleasedEscrowToUser(normalizedAddress),
-        tryRpc(() => registration.id1Wallet(), ethers.ZeroAddress),
+        tryRpc((provider) =>
+          registration.connect(provider).id1Wallet(),
+        ethers.ZeroAddress),
       ]);
 
     const isProtocolId1Wallet = lower(id1WalletRaw) === normalizedLower;

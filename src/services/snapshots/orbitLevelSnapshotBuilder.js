@@ -380,57 +380,50 @@ function getCurrentCycleEvents(allEvents, totalCycles) {
 
   const currentCycleNumber = Number(totalCycles || 0) + 1;
 
-  const cycleTaggedEvents = sorted.filter(
-    (event) =>
-      event.eventName !== 'OrbitReset' &&
-      Number(event.cycleNumber || 0) === currentCycleNumber
-  );
-
-  if (cycleTaggedEvents.length > 0) {
-    return {
-      currentEvents: cycleTaggedEvents,
-      lastReset,
-      resetEvents,
-      currentCycleNumber,
-      source: 'event-cycle-number',
-    };
-  }
-
   const eventsAfterReset = sorted.filter(
     (event) =>
       event.eventName !== 'OrbitReset' &&
       isAfterResetBoundary(event, lastReset)
   );
 
+  // Historical rows indexed before cycle tagging use cycle 0. They still
+  // belong to the active cycle when they occur after its reset boundary.
+  const currentEvents = eventsAfterReset.filter((event) => {
+    const cycleNumber = Number(event.cycleNumber || 0);
+    return cycleNumber === 0 || cycleNumber === currentCycleNumber;
+  });
+
+  const hasTaggedEvents = currentEvents.some(
+    (event) => Number(event.cycleNumber || 0) === currentCycleNumber
+  );
+
   return {
-    currentEvents: eventsAfterReset,
+    currentEvents,
     lastReset,
     resetEvents,
     currentCycleNumber,
-    source: 'reset-boundary-fallback',
+    source: hasTaggedEvents
+      ? 'event-cycle-number-with-legacy-fallback'
+      : 'reset-boundary-fallback',
   };
 }
 
 function getCurrentCycleReceipts(allReceipts, lastReset, currentCycleNumber) {
-  const cycleTaggedReceipts = allReceipts.filter(
-    (receipt) =>
-      Number(receipt.sourceCycle || 0) === Number(currentCycleNumber || 0)
-  );
-
-  if (cycleTaggedReceipts.length > 0) {
-    return cycleTaggedReceipts;
-  }
-
-  if (!lastReset) return allReceipts;
-
   return allReceipts.filter(
-    (receipt) =>
-      compareChainPoint(
+    (receipt) => {
+      const sourceCycle = Number(receipt.sourceCycle || 0);
+      const belongsToCurrentCycle =
+        sourceCycle === 0 || sourceCycle === Number(currentCycleNumber || 0);
+      if (!belongsToCurrentCycle) return false;
+      if (!lastReset) return true;
+
+      return compareChainPoint(
         receipt.blockNumber,
         receipt.logIndex || 0,
         lastReset.blockNumber,
         lastReset.logIndex || 0
-      ) > 0
+      ) > 0;
+    }
   );
 }
 
@@ -691,15 +684,13 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
     const eventsForPosition = currentEvents.filter(
       (event) =>
         event.eventName === 'PositionFilled' &&
-        Number(event.position || 0) === positionNumber &&
-        Number(event.cycleNumber || 0) === currentCycleNumber
+        Number(event.position || 0) === positionNumber
     );
 
     // STRICT LOOKUP - REPLACING groupReceiptsByPosition
     const receiptsForPosition = currentReceipts.filter(
       (receipt) =>
-        Number(receipt.sourcePosition || 0) === positionNumber &&
-        Number(receipt.sourceCycle || 0) === currentCycleNumber
+        Number(receipt.sourcePosition || 0) === positionNumber
     );
 
     positions.push(

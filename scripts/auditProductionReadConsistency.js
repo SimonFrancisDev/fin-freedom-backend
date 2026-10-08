@@ -24,6 +24,31 @@ function maxBlock(rows) {
   return rows.reduce((max, row) => Math.max(max, Number(row.blockNumber || 0)), 0);
 }
 
+function compareChainPoint(a, b) {
+  const blockDiff = Number(a?.blockNumber || 0) - Number(b?.blockNumber || 0);
+  if (blockDiff !== 0) return blockDiff;
+  return Number(a?.logIndex || 0) - Number(b?.logIndex || 0);
+}
+
+function currentPositionEvents(rows, snapshot) {
+  const resetEvents = rows
+    .filter((row) => row.eventName === 'OrbitReset')
+    .sort(compareChainPoint);
+  const lastReset = resetEvents.at(-1) || null;
+  const currentCycle = Number(snapshot.orbitSummary?.totalCycles || 0) + 1;
+  const latestByPosition = new Map();
+
+  for (const row of rows.sort(compareChainPoint)) {
+    if (row.eventName !== 'PositionFilled') continue;
+    if (lastReset && compareChainPoint(row, lastReset) <= 0) continue;
+    const cycle = Number(row.cycleNumber || 0);
+    if (cycle !== 0 && cycle !== currentCycle) continue;
+    latestByPosition.set(Number(row.position || 0), row);
+  }
+
+  return [...latestByPosition.values()];
+}
+
 async function main() {
   await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 60000 });
   const [registration, orbitEvents, receipts, activations, financial, escrow, tokens, levelSnapshots, cycleSnapshots] = await Promise.all([
@@ -38,13 +63,13 @@ async function main() {
     OrbitCycleSnapshot.find({}).lean(),
   ]);
 
-  const positionEvents = orbitEvents.filter((row) => row.eventName === 'PositionFilled');
-  const positionByLevel = new Map();
-  for (const row of positionEvents) {
+  const orbitEventsByLevel = new Map();
+  for (const row of orbitEvents) {
     const key = levelKey(row.orbitOwner, row.level);
-    if (!positionByLevel.has(key)) positionByLevel.set(key, []);
-    positionByLevel.get(key).push(row);
+    if (!orbitEventsByLevel.has(key)) orbitEventsByLevel.set(key, []);
+    orbitEventsByLevel.get(key).push(row);
   }
+  const positionEvents = orbitEvents.filter((row) => row.eventName === 'PositionFilled');
 
   const snapshotByLevel = new Map(levelSnapshots.map((row) => [levelKey(row.address, row.level), row]));
   const internalMismatches = [];
@@ -59,7 +84,8 @@ async function main() {
       + Number(snapshot.linePaymentCounts?.line2 || 0)
       + Number(snapshot.linePaymentCounts?.line3 || 0);
     const currentPosition = Number(snapshot.orbitSummary?.currentPosition || 0);
-    const pointerExpectedOccupied = Math.max(0, currentPosition - 1);
+    const pointerExpectedOccupied =
+      currentPosition === 0 ? occupied.length : Math.max(0, currentPosition - 1);
     if (occupied.length !== lineTotal || occupied.length !== pointerExpectedOccupied) {
       internalMismatches.push({
         address: snapshot.address,
@@ -74,9 +100,10 @@ async function main() {
       });
     }
 
-    const currentCycle = Number(snapshot.orbitSummary?.totalCycles || 0) + 1;
-    const events = (positionByLevel.get(levelKey(snapshot.address, snapshot.level)) || [])
-      .filter((row) => !Number(row.cycleNumber || 0) || Number(row.cycleNumber) === currentCycle);
+    const events = currentPositionEvents(
+      orbitEventsByLevel.get(levelKey(snapshot.address, snapshot.level)) || [],
+      snapshot
+    );
     for (const event of events) {
       const candidate = positions.find((row) => Number(row.number) === Number(event.position));
       if (!candidate || !candidate.occupant) {

@@ -79,14 +79,14 @@ async function getLockedForNextLevel(contracts, address, level) {
   if (level >= 10) return 0n;
 
   if (typeof contracts?.escrow?.getLockedAmount === 'function') {
-    return safeRpcCall(() =>
-      contracts.escrow.getLockedAmount(address, level, level + 1)
+    return safeRpcCall((provider) =>
+      contracts.escrow.connect(provider).getLockedAmount(address, level, level + 1)
     );
   }
 
   if (typeof contracts?.escrow?.lockedFunds === 'function') {
-    return safeRpcCall(() =>
-      contracts.escrow.lockedFunds(address, level, level + 1)
+    return safeRpcCall((provider) =>
+      contracts.escrow.connect(provider).lockedFunds(address, level, level + 1)
     );
   }
 
@@ -149,17 +149,23 @@ export async function enrichOrbitLevelSnapshot(address, level) {
   ] = await Promise.all([
     trySafe(
       `isLevelActivated failed for ${normalizedAddress} level ${level}`,
-      () => safeRpcCall(() => registration.isLevelActivated(normalizedAddress, level)),
+      () => safeRpcCall((provider) =>
+        registration.connect(provider).isLevelActivated(normalizedAddress, level)
+      ),
       isLevelActive
     ),
     trySafe(
       `getUserOrbit failed for ${normalizedAddress} level ${level}`,
-      () => safeRpcCall(() => orbitContract.getUserOrbit(normalizedAddress, level)),
+      () => safeRpcCall((provider) =>
+        orbitContract.connect(provider).getUserOrbit(normalizedAddress, level)
+      ),
       null
     ),
     trySafe(
       `getLinePaymentCounts failed for ${normalizedAddress} level ${level}`,
-      () => safeRpcCall(() => orbitContract.getLinePaymentCounts(normalizedAddress, level)),
+      () => safeRpcCall((provider) =>
+        orbitContract.connect(provider).getLinePaymentCounts(normalizedAddress, level)
+      ),
       null
     ),
     trySafe(

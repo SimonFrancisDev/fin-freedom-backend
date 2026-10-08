@@ -6,6 +6,7 @@ import IndexedEscrowEvent from '../../models/IndexedEscrowEvent.js';
 import FreedomPlusPayment from '../../models/FreedomPlusPayment.js';
 import FreedomPlusLedgerEntry from '../../models/FreedomPlusLedgerEntry.js';
 import FreedomPlusParticipant from '../../models/FreedomPlusParticipant.js';
+import { fetchCanonicalParticipantCounts } from './canonicalParticipantService.js';
 
 const CACHE_TTL_MS = 15000;
 const cache = new Map();
@@ -253,12 +254,14 @@ export async function fetchCommunityGrowth(days = 14) {
 
 export async function fetchCommunityGlobalStats() {
   return cached('community-analytics:global-stats', async () => {
-    const [fFreedomUsers, freedomPlusUsers, receiptRows, freedomPlusPayments, founderIncome] = await Promise.all([
-      IndexedRegistrationEvent.countDocuments({
-        chainId: env.CHAIN_ID,
-        eventName: 'Registered',
-      }),
+    const [participantCounts, freedomPlusUsers, nftMembers, receiptRows, freedomPlusPayments, founderIncome] = await Promise.all([
+      fetchCanonicalParticipantCounts(),
       FreedomPlusParticipant.countDocuments({ chainId: env.CHAIN_ID, registered: true }),
+      FreedomPlusLedgerEntry.distinct('wallet', {
+        chainId: env.CHAIN_ID,
+        category: 'nft_membership',
+        wallet: { $nin: [null, ''] },
+      }),
       IndexedReceipt.find({ chainId: env.CHAIN_ID })
         .select('liquidPaid grossAmount escrowLocked')
         .lean(),
@@ -272,7 +275,16 @@ export async function fetchCommunityGlobalStats() {
     const totalEscrowRaw = sumRawField(receiptRows, 'escrowLocked');
 
     return {
-      totalUsers: Math.max(fFreedomUsers, freedomPlusUsers),
+      totalUsers: participantCounts.totalParticipants,
+      totalParticipants: participantCounts.totalParticipants,
+      registeredWallets: participantCounts.registeredWallets,
+      systemParticipants: participantCounts.systemParticipants,
+      participantTruthSource: participantCounts.truthSource,
+      participantCountReconciled: participantCounts.chainAndIndexMatch,
+      programSubsets: {
+        freedomPlus: freedomPlusUsers,
+        freedomNft: nftMembers.length,
+      },
       totalReceipts: receiptRows.length + freedomPlusPayments.length + founderIncome.length,
       totalLiquid: formatRawUsdt(totalLiquidRaw),
       totalGross: formatRawUsdt(totalGrossRaw),

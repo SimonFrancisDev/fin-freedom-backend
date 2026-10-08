@@ -15,6 +15,7 @@ import FreedomPlusEvent from '../../models/FreedomPlusEvent.js';
 import FreedomPlusLedgerEntry from '../../models/FreedomPlusLedgerEntry.js';
 import FreedomPlusPayment from '../../models/FreedomPlusPayment.js';
 import freedomPlusAddresses, { freedomPlusSystemVaults } from '../../blockchain/freedomPlusAddresses.js';
+import { fetchCanonicalParticipantCounts } from './canonicalParticipantService.js';
 
 const CACHE_TTL_MS = 15000;
 const cache = new Map();
@@ -165,7 +166,9 @@ function getContractAddress(contract) {
 async function safeBalanceOf(usdtContract, address) {
   if (!usdtContract?.balanceOf || !address) return 0n;
   try {
-    const value = await safeRpcCall(() => usdtContract.balanceOf(address));
+    const value = await safeRpcCall((provider) =>
+      usdtContract.connect(provider).balanceOf(address)
+    );
     return BigInt(value || 0);
   } catch {
     return 0n;
@@ -173,23 +176,8 @@ async function safeBalanceOf(usdtContract, address) {
 }
 
 async function fetchTotalParticipants(contracts) {
-  if (!contracts?.registration) return 0;
-
-  try {
-    const totalParticipantsRaw = await safeRpcCall(() => contracts.registration.totalParticipants());
-    const count = Number(totalParticipantsRaw || 0);
-    if (count > 0) return count;
-  } catch {
-    // fall back
-  }
-
-  try {
-    return await IndexedRegistrationEvent.countDocuments({
-      eventName: 'Registered',
-    });
-  } catch {
-    return 0;
-  }
+  const counts = await fetchCanonicalParticipantCounts(contracts);
+  return counts.totalParticipants;
 }
 
 function toBigIntSafe(value) {
@@ -288,7 +276,9 @@ async function fetchGlobalEscrowMetrics(contracts) {
 
     if (escrow?.getGlobalEscrowStats) {
       const [lockedLifetime, usedForUpgrade, releasedToUsers, currentlyLocked] =
-        await safeRpcCall(() => escrow.getGlobalEscrowStats());
+        await safeRpcCall((provider) =>
+          escrow.connect(provider).getGlobalEscrowStats()
+        );
 
       lockedLifetimeRaw = toBigIntSafe(lockedLifetime);
       usedForUpgradeRaw = toBigIntSafe(usedForUpgrade);
@@ -521,8 +511,8 @@ async function fetchCommunityFinancialMetrics(contracts) {
 export async function fetchFounderDistributionSummary() {
   return cached('community:founder-distribution', async () => {
     const contracts = getContracts();
-    const [walletsRaw, ratiosRaw] = await safeRpcCall(() =>
-      contracts.levelManager.getFounderWallets()
+    const [walletsRaw, ratiosRaw] = await safeRpcCall((provider) =>
+      contracts.levelManager.connect(provider).getFounderWallets()
     );
 
     const wallets = Array.from(walletsRaw || []).map((wallet) =>
