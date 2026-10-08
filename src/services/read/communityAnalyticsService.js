@@ -6,6 +6,7 @@ import IndexedEscrowEvent from '../../models/IndexedEscrowEvent.js';
 import FreedomPlusPayment from '../../models/FreedomPlusPayment.js';
 import FreedomPlusLedgerEntry from '../../models/FreedomPlusLedgerEntry.js';
 import FreedomPlusParticipant from '../../models/FreedomPlusParticipant.js';
+import ReferralCode from '../../models/ReferralCode.js';
 import { fetchCanonicalParticipantCounts } from './canonicalParticipantService.js';
 
 const CACHE_TTL_MS = 15000;
@@ -89,6 +90,35 @@ function sumRawField(rows, fieldName) {
   }, 0n);
 }
 
+async function attachReferralIds(rows) {
+  const addresses = [...new Set(
+    rows
+      .map((row) => String(row?.address || '').toLowerCase())
+      .filter((address) => ethers.isAddress(address))
+  )];
+
+  if (!addresses.length) return rows;
+
+  const referralCodes = await ReferralCode.find({
+    walletAddress: { $in: addresses },
+    isActive: true,
+  })
+    .select('walletAddress shortCode')
+    .lean();
+
+  const referralIdByWallet = new Map(
+    referralCodes.map((item) => [
+      String(item.walletAddress || '').toLowerCase(),
+      String(item.shortCode || ''),
+    ])
+  );
+
+  return rows.map((row) => ({
+    ...row,
+    referralId: referralIdByWallet.get(String(row.address || '').toLowerCase()) || '',
+  }));
+}
+
 function ensureEarningsRow(grouped, address) {
   const normalized = String(address || '').toLowerCase();
   if (!ethers.isAddress(normalized)) return null;
@@ -162,14 +192,14 @@ export async function fetchCommunityLeaderboard(limit = 20) {
       })
       .slice(0, safeLimit);
 
-    return sorted.map((row, index) => ({
+    return attachReferralIds(sorted.map((row, index) => ({
       rank: index + 1,
       address: row.address,
       totalEarned: formatRawUsdt(row.totalLiquid),
       totalGross: formatRawUsdt(row.totalGross),
       totalEscrow: formatRawUsdt(row.totalEscrow),
       receiptCount: row.receiptCount,
-    }));
+    })));
   });
 }
 
@@ -361,7 +391,7 @@ export async function fetchTopReferrers(limit = 20) {
       })
     );
 
-    return enrichedReferrers;
+    return attachReferralIds(enrichedReferrers);
   });
 }
 
@@ -432,7 +462,7 @@ export async function fetchMostActive(limit = 20, days = 30) {
       })
     );
 
-    return enrichedActive;
+    return attachReferralIds(enrichedActive);
   });
 }
 
