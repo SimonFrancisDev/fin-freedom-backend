@@ -72,3 +72,43 @@ All recovery writes were additive or idempotent projection updates.
 - Resolve the existing MongoDB walletAddress_1 index-definition warning.
 - Audit older projection inconsistencies separately from this recovered outage
   range.
+
+## October 16 Recovery Verification
+
+The production worker was restarted against the verified Polygon mainnet
+configuration to exercise the permanent startup recovery path. Continuous
+polling remained disabled.
+
+- Freedom-Plus recovery completed through confirmed block `95623706` and found
+  no missed Freedom-Plus events.
+- F-Freedom recovery completed through the same confirmed block without a
+  recovery failure.
+- The first orbit-projection reconciliation dry run identified 18 stale current
+  placement projections and no missing registration or activation snapshots.
+- Apply mode rebuilt only those 18 MongoDB read projections from indexed events
+  and verified live contract reads. No contract, payment, participant, or
+  blockchain state was changed.
+- The post-repair dry run returned zero targets.
+- The independent consistency audit returned zero duplicate event keys, zero
+  activations without receipts, zero missing Level 1 snapshots, zero internal
+  snapshot mismatches, and zero event/snapshot occupant mismatches.
+- The audited database contained 473 ordinary registered users. The public
+  ecosystem total was 474 after counting ID1 exactly once; Freedom-Plus remained
+  a 33-participant subset.
+- Both durable indexers reported `idle` at block `95623706` after catch-up.
+
+The audit also reported 702 legacy snapshots without freshness metadata. They
+had no detected internal or placement mismatch, so this is a metadata backfill
+item rather than evidence of incorrect live placement data.
+
+### Remaining Operational Work
+
+- Redact RPC URLs from the public indexer-status response and rotate the exposed
+  provider credential.
+- Resolve the `walletAddress_1` index-definition conflict after checking for
+  duplicate referral records.
+- Add checkpoint-lag and WebSocket-disconnect alerting so another stale durable
+  checkpoint is detected automatically.
+- Complete the Operations Vault ABI reconciliation noted above.
+- Configure and authorize the separate NFT monthly reward operator before the
+  first automatic reward period. This is independent of event-index recovery.
