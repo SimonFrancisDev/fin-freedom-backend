@@ -9,6 +9,7 @@ import {
   getFreedomPlusReconciliation,
   getFreedomPlusStatus,
   getFreedomPlusRewardPeriods,
+  getFreedomPlusRewardCycleStatus,
   getFreedomPlusRewardProof,
 } from '../controllers/freedomPlusController.js';
 
@@ -22,6 +23,7 @@ router.get('/orbit/:address/level/:level', getFreedomPlusOrbit);
 router.get('/payments/:address', getFreedomPlusPayments);
 router.get('/events/:address', getFreedomPlusEvents);
 router.get('/rewards/periods', getFreedomPlusRewardPeriods);
+router.get('/rewards/status/:address', getFreedomPlusRewardCycleStatus);
 router.get('/rewards/:periodId/:address', getFreedomPlusRewardProof);
 
 export default router;

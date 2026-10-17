@@ -8,6 +8,7 @@ import {
   freedomPlusReconciliation,
   freedomPlusStatus,
   freedomPlusRewardProof,
+  freedomPlusRewardCycleStatus,
   listFreedomPlusRewardPeriods,
 } from '../services/read/freedomPlusQueryService.js';
 
@@ -27,4 +28,5 @@ export const getFreedomPlusOrbit = handler((req) => freedomPlusOrbit(req.params.
 export const getFreedomPlusPayments = handler((req) => freedomPlusPayments(req.params.address, req.query));
 export const getFreedomPlusEvents = handler((req) => freedomPlusEvents(req.params.address, req.query));
 export const getFreedomPlusRewardPeriods = handler(() => listFreedomPlusRewardPeriods());
+export const getFreedomPlusRewardCycleStatus = handler((req) => freedomPlusRewardCycleStatus(req.params.address));
 export const getFreedomPlusRewardProof = handler((req) => freedomPlusRewardProof(req.params.periodId, req.params.address));

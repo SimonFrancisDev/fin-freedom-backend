@@ -6,6 +6,7 @@ import FreedomPlusRewardSnapshot from '../models/FreedomPlusRewardSnapshot.js';
 import FreedomPlusSyncState from '../models/FreedomPlusSyncState.js';
 import { buildTree, rewardLeaf } from './freedomPlusMerkle.js';
 import { syncNftMembershipThrough } from './freedomPlusIndexerService.js';
+import { nextRewardCycle, parseFirstDistributionAt } from './nftRewardSchedule.js';
 
 const MEMBERSHIP_EVENTS = [
   'MembershipMinted',
@@ -14,11 +15,18 @@ const MEMBERSHIP_EVENTS = [
   'EligibilityRestored',
 ];
 
-function periodDate(year, month) {
-  if (!Number.isInteger(year) || year < 1970 || !Number.isInteger(month) || month < 1 || month > 12) {
-    throw new Error('Invalid Freedom NFT reward year or month');
+function cycleDates(cycleId, distributionAt, cutoffAt) {
+  const cycle = Number(cycleId);
+  const distribution = new Date(distributionAt);
+  const cutoff = new Date(cutoffAt);
+  if (!Number.isInteger(cycle) || cycle < 1) throw new Error('Invalid Freedom NFT reward cycle');
+  if (!Number.isFinite(distribution.getTime()) || !Number.isFinite(cutoff.getTime())) {
+    throw new Error('Invalid Freedom NFT reward cycle timestamps');
   }
-  return new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
+  if (distribution.getTime() - cutoff.getTime() !== 24 * 60 * 60 * 1000) {
+    throw new Error('Freedom NFT eligibility cutoff must be exactly 24 hours before distribution');
+  }
+  return { cycle, distribution, cutoff };
 }
 
 async function cutoffBlockFor(provider, cutoffSeconds) {
@@ -58,15 +66,20 @@ function applyMembershipEvent(state, event) {
   state.set(wallet, current);
 }
 
-export async function buildFreedomPlusRewardSnapshot({ year, month }) {
+export async function buildFreedomPlusRewardSnapshot({
+  cycleId, distributionAt, cutoffAt, excludedWallets = [],
+}) {
   if (!env.FREEDOM_PLUS_ENABLED) throw new Error('Freedom-Plus is disabled');
-  const cutoff = periodDate(Number(year), Number(month));
+  const { cycle, distribution, cutoff } = cycleDates(cycleId, distributionAt, cutoffAt);
   if (cutoff.getTime() > Date.now()) throw new Error('Cannot build a future reward snapshot');
-  const periodId = Number(year) * 100 + Number(month);
+  const periodId = cycle;
+  const excluded = [...new Set(excludedWallets.map((wallet) => getAddress(wallet).toLowerCase()))].sort();
   const existing = await FreedomPlusRewardSnapshot.findOne({ chainId: env.CHAIN_ID, periodId }).lean();
   if (existing) {
     if (existing.membershipAddress !== env.FREEDOM_NFT_MEMBERSHIP_ADDRESS.toLowerCase()
-        || existing.proofDataAvailable !== true) {
+        || existing.proofDataAvailable !== true
+        || new Date(existing.distributionAt).getTime() !== distribution.getTime()
+        || JSON.stringify(existing.excludedWallets || []) !== JSON.stringify(excluded)) {
       throw new Error('Reward snapshot belongs to an unverified deployment or lacks proofs');
     }
     return existing;
@@ -97,7 +110,7 @@ export async function buildFreedomPlusRewardSnapshot({ year, month }) {
   const state = new Map();
   events.forEach((event) => applyMembershipEvent(state, event));
   const tiers = [1, 2, 3].map((tier) => [...state.values()]
-    .filter((member) => member.tier === tier && member.rewardEligible)
+    .filter((member) => member.tier === tier && member.rewardEligible && !excluded.includes(member.wallet))
     .map((member) => ({ wallet: getAddress(member.wallet).toLowerCase(), tier }))
     .sort((a, b) => a.wallet.localeCompare(b.wallet))
     .map((member) => ({ ...member, leaf: rewardLeaf(member.wallet, tier) })));
@@ -109,14 +122,17 @@ export async function buildFreedomPlusRewardSnapshot({ year, month }) {
   const snapshot = {
     chainId: env.CHAIN_ID,
     periodId,
+    cycleId: cycle,
     membershipAddress: env.FREEDOM_NFT_MEMBERSHIP_ADDRESS.toLowerCase(),
-    year: Number(year),
-    month: Number(month),
+    year: distribution.getUTCFullYear(),
+    month: distribution.getUTCMonth() + 1,
+    distributionAt: distribution,
     cutoff,
     cutoffBlock,
     roots: trees.map((tree) => tree.root),
     counts: tiers.map((entries) => entries.length),
     eligibility,
+    excludedWallets: excluded,
     sourceEventCount: events.length,
     proofDataAvailable: true,
     status: 'draft',
@@ -143,9 +159,11 @@ export async function freedomPlusRewardProof(periodId, address) {
   const entry = snapshot.eligibility.find((item) => item.wallet === wallet);
   return {
     periodId: numericPeriod,
+    cycleId: Number(snapshot.cycleId || snapshot.periodId),
     wallet,
     snapshotAvailable: true,
     published: snapshot.status === 'published',
+    distributionAt: snapshot.distributionAt,
     cutoff: snapshot.cutoff,
     cutoffBlock: snapshot.cutoffBlock,
     eligible: Boolean(entry),
@@ -158,4 +176,34 @@ export async function freedomPlusRewardProof(periodId, address) {
 export async function listFreedomPlusRewardPeriods() {
   return FreedomPlusRewardSnapshot.find({ chainId: env.CHAIN_ID })
     .select('-eligibility').sort({ periodId: -1 }).lean();
+}
+
+export async function freedomPlusRewardCycleStatus(address) {
+  const wallet = getAddress(address).toLowerCase();
+  const cycle = nextRewardCycle(env.NFT_REWARD_FIRST_DISTRIBUTION_AT);
+  const snapshot = await FreedomPlusRewardSnapshot.findOne({
+    chainId: env.CHAIN_ID,
+    periodId: cycle.periodId,
+  }).lean();
+  const entry = snapshot?.eligibility?.find((item) => item.wallet === wallet);
+  const excluded = Boolean(snapshot?.excludedWallets?.includes(wallet));
+  const snapshotAvailable = Boolean(snapshot?.proofDataAvailable);
+  return {
+    firstDistributionAt: parseFirstDistributionAt(env.NFT_REWARD_FIRST_DISTRIBUTION_AT),
+    cycleId: cycle.cycleId,
+    distributionAt: cycle.distributionAt,
+    cutoffAt: cycle.cutoffAt,
+    eligibilityFrozen: cycle.eligibilityFrozen,
+    mintingOpen: true,
+    snapshotAvailable,
+    excluded,
+    eligible: snapshotAvailable ? Boolean(entry) : null,
+    tier: entry?.tier || 0,
+    appliesToCycleId: cycle.eligibilityFrozen ? cycle.cycleId + 1 : cycle.cycleId,
+    status: excluded
+      ? 'excluded'
+      : snapshotAvailable
+        ? (entry ? 'eligible' : 'not_eligible')
+        : (cycle.eligibilityFrozen ? 'snapshot_pending' : 'open'),
+  };
 }

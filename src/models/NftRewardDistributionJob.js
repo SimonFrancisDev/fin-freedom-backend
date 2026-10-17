@@ -4,7 +4,7 @@ const schema = new mongoose.Schema({
   chainId: { type: Number, required: true },
   distributor: { type: String, required: true, lowercase: true },
   periodId: { type: Number, required: true },
-  status: { type: String, enum: ['pending', 'running', 'complete', 'empty'], default: 'pending' },
+  status: { type: String, enum: ['pending', 'running', 'snapshotted', 'complete', 'empty'], default: 'pending' },
   cursor: { type: Number, default: 0 },
   poolAmount: { type: String, default: '' },
   leaseOwner: { type: String, default: '' },

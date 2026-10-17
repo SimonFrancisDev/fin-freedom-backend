@@ -43,6 +43,27 @@
     "type": "error"
   },
   {
+    "inputs": [],
+    "name": "CycleScheduleAlreadyConfigured",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "CycleScheduleNotConfigured",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "distributionAt",
+        "type": "uint64"
+      }
+    ],
+    "name": "DistributionNotReached",
+    "type": "error"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -87,6 +108,28 @@
       }
     ],
     "name": "InvalidContract",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint32",
+        "name": "cycleId",
+        "type": "uint32"
+      }
+    ],
+    "name": "InvalidCycle",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "firstDistributionAt",
+        "type": "uint64"
+      }
+    ],
+    "name": "InvalidCycleSchedule",
     "type": "error"
   },
   {
@@ -145,6 +188,11 @@
       }
     ],
     "name": "InvalidTier",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "LegacyPeriodCreationDisabled",
     "type": "error"
   },
   {
@@ -213,6 +261,17 @@
     "type": "error"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "member",
+        "type": "address"
+      }
+    ],
+    "name": "RewardRecipientExcluded",
+    "type": "error"
+  },
+  {
     "inputs": [],
     "name": "UUPSUnauthorizedCallContext",
     "type": "error"
@@ -232,6 +291,19 @@
     "inputs": [],
     "name": "UnauthorizedRewardOperator",
     "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint64",
+        "name": "firstDistributionAt",
+        "type": "uint64"
+      }
+    ],
+    "name": "CycleScheduleConfigured",
+    "type": "event"
   },
   {
     "anonymous": false,
@@ -383,6 +455,25 @@
       {
         "indexed": true,
         "internalType": "address",
+        "name": "member",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "excluded",
+        "type": "bool"
+      }
+    ],
+    "name": "RewardExclusionUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
         "name": "previousOperator",
         "type": "address"
       },
@@ -421,6 +512,32 @@
     ],
     "name": "Upgraded",
     "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "CYCLE_DURATION",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "ELIGIBILITY_FREEZE",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   },
   {
     "inputs": [],
@@ -498,6 +615,63 @@
   {
     "inputs": [
       {
+        "internalType": "uint64",
+        "name": "firstDistributionAt_",
+        "type": "uint64"
+      },
+      {
+        "internalType": "address",
+        "name": "excludedId1",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "rewardOperator_",
+        "type": "address"
+      }
+    ],
+    "name": "configureCycleSchedule",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint32",
+        "name": "cycleId",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "poolAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32[3]",
+        "name": "eligibleRoots",
+        "type": "bytes32[3]"
+      },
+      {
+        "internalType": "uint256[3]",
+        "name": "eligibleCounts",
+        "type": "uint256[3]"
+      }
+    ],
+    "name": "createCycle",
+    "outputs": [
+      {
+        "internalType": "uint32",
+        "name": "periodId",
+        "type": "uint32"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint16",
         "name": "year",
         "type": "uint16"
@@ -527,11 +701,35 @@
     "outputs": [
       {
         "internalType": "uint32",
-        "name": "periodId",
+        "name": "",
         "type": "uint32"
       }
     ],
-    "stateMutability": "nonpayable",
+    "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint32",
+        "name": "cycleId",
+        "type": "uint32"
+      }
+    ],
+    "name": "cycleTimes",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "distributionAt",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "eligibilityCutoff",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -560,6 +758,19 @@
     "name": "distributeBatch",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "firstDistributionAt",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -682,6 +893,11 @@
             "internalType": "bool",
             "name": "created",
             "type": "bool"
+          },
+          {
+            "internalType": "uint64",
+            "name": "distributionAt",
+            "type": "uint64"
           }
         ],
         "internalType": "struct FreedomNFTRewardDistributor.Period",
@@ -710,6 +926,25 @@
     "name": "renounceOwnership",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "rewardExcluded",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -747,6 +982,24 @@
       }
     ],
     "name": "setGuardian",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "member",
+        "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "excluded",
+        "type": "bool"
+      }
+    ],
+    "name": "setRewardExclusion",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
