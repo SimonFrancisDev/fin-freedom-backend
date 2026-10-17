@@ -18,6 +18,10 @@ const analyticsSource = await readFile(
   new URL('../src/services/read/communityAnalyticsService.js', import.meta.url),
   'utf8'
 );
+const indexerSource = await readFile(
+  new URL('../src/services/indexerService.js', import.meta.url),
+  'utf8'
+);
 
 test('current orbit projections preserve untagged rows after the reset boundary', () => {
   assert.match(
@@ -41,6 +45,17 @@ test('a newer indexed placement is rebuilt before the API responds', () => {
     querySource,
     /await buildOrbitLevelSnapshot\(address, level\);\s*await enrichOrbitLevelSnapshot/
   );
+});
+
+test('indexed orbit changes coalesce into a bounded snapshot refresh', () => {
+  const refreshCalls =
+    indexerSource.match(/^  scheduleOrbitLevelSnapshotRefresh\(\{/gm) || [];
+
+  assert.equal(refreshCalls.length, 2);
+  assert.match(indexerSource, /ORBIT_SNAPSHOT_REFRESH_CONCURRENCY = 1/);
+  assert.match(indexerSource, /freshnessBlock: targetBlock/);
+  assert.match(indexerSource, /Math\.max\(state\.blockNumber, normalizedBlock\)/);
+  assert.doesNotMatch(indexerSource, /setInterval\([^)]*OrbitSnapshot/);
 });
 
 test('ecosystem totals come from F-Freedom and count ID1 once', () => {

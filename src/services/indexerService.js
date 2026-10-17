@@ -24,6 +24,106 @@ import {
 import { getContracts } from '../blockchain/contracts.js';
 import { getStartBlocks, getSyncConfig } from '../config/syncConfig.js';
 import env from '../config/env.js';
+import { buildOrbitLevelSnapshot } from './snapshots/orbitLevelSnapshotBuilder.js';
+
+const ORBIT_SNAPSHOT_REFRESH_DELAY_MS = 1500;
+const ORBIT_SNAPSHOT_REFRESH_CONCURRENCY = 1;
+const orbitSnapshotRefreshStates = new Map();
+const orbitSnapshotRefreshQueue = [];
+let activeOrbitSnapshotRefreshes = 0;
+
+function drainOrbitSnapshotRefreshQueue() {
+  while (
+    activeOrbitSnapshotRefreshes < ORBIT_SNAPSHOT_REFRESH_CONCURRENCY &&
+    orbitSnapshotRefreshQueue.length > 0
+  ) {
+    const key = orbitSnapshotRefreshQueue.shift();
+    const state = orbitSnapshotRefreshStates.get(key);
+    if (!state || state.active) continue;
+
+    state.queued = false;
+    state.active = true;
+    state.rerun = false;
+    const targetBlock = state.blockNumber;
+    activeOrbitSnapshotRefreshes += 1;
+
+    buildOrbitLevelSnapshot(state.address, state.level, {
+      builtFromBlock: targetBlock,
+      freshnessBlock: targetBlock,
+    })
+      .catch((error) => {
+        console.error('[ORBIT_LEVEL_SNAPSHOT_EVENT_REFRESH_FAILED]', {
+          address: state.address,
+          level: state.level,
+          blockNumber: targetBlock,
+          message: error?.message || String(error),
+        });
+      })
+      .finally(() => {
+        activeOrbitSnapshotRefreshes -= 1;
+        state.active = false;
+
+        if (state.rerun || state.blockNumber > targetBlock) {
+          armOrbitSnapshotRefresh(state);
+        } else {
+          orbitSnapshotRefreshStates.delete(key);
+        }
+
+        drainOrbitSnapshotRefreshQueue();
+      });
+  }
+}
+
+function queueOrbitSnapshotRefresh(state) {
+  if (state.queued || state.active) return;
+  state.queued = true;
+  orbitSnapshotRefreshQueue.push(state.key);
+  drainOrbitSnapshotRefreshQueue();
+}
+
+function armOrbitSnapshotRefresh(state) {
+  if (state.timer) clearTimeout(state.timer);
+
+  state.timer = setTimeout(() => {
+    state.timer = null;
+    queueOrbitSnapshotRefresh(state);
+  }, ORBIT_SNAPSHOT_REFRESH_DELAY_MS);
+  state.timer.unref?.();
+}
+
+function scheduleOrbitLevelSnapshotRefresh({ address, level, blockNumber }) {
+  const normalizedAddress = String(address || '').trim().toLowerCase();
+  const normalizedLevel = Number(level || 0);
+  const normalizedBlock = Math.max(0, Number(blockNumber || 0));
+
+  if (!/^0x[0-9a-f]{40}$/.test(normalizedAddress)) return false;
+  if (!Number.isInteger(normalizedLevel) || normalizedLevel < 1 || normalizedLevel > 10) {
+    return false;
+  }
+
+  const key = `${normalizedAddress}:${normalizedLevel}`;
+  let state = orbitSnapshotRefreshStates.get(key);
+
+  if (!state) {
+    state = {
+      key,
+      address: normalizedAddress,
+      level: normalizedLevel,
+      blockNumber: normalizedBlock,
+      timer: null,
+      queued: false,
+      active: false,
+      rerun: false,
+    };
+    orbitSnapshotRefreshStates.set(key, state);
+  } else {
+    state.blockNumber = Math.max(state.blockNumber, normalizedBlock);
+    if (state.active) state.rerun = true;
+  }
+
+  if (!state.active && !state.queued) armOrbitSnapshotRefresh(state);
+  return true;
+}
 
 function buildErrorMessage(error) {
   return (
@@ -601,6 +701,12 @@ export async function saveReceiptLog(chainId, log, parsed, block) {
     receiver: toLower(args.receiver),
     blockNumber: log.blockNumber,
   });
+
+  scheduleOrbitLevelSnapshotRefresh({
+    address: args.orbitOwner ?? args[4] ?? '',
+    level: args.level,
+    blockNumber: log.blockNumber,
+  });
 }
 
 export async function saveRegistrationLog(chainId, contractAddress, log, parsed, block) {
@@ -1110,6 +1216,12 @@ export async function saveOrbitLog(chainId, orbitType, contractAddress, log, par
     level,
     position,
     cycleNumber,
+    blockNumber: log.blockNumber,
+  });
+
+  scheduleOrbitLevelSnapshotRefresh({
+    address: orbitOwner,
+    level,
     blockNumber: log.blockNumber,
   });
 }

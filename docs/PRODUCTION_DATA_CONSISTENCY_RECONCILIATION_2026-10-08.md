@@ -70,3 +70,28 @@ At the verification checkpoint:
 
 Freedom Plus and NFT counts are subsets of the 430 canonical participants and
 are not added to that total.
+
+## October 18 follow-up
+
+A production audit found 13 current-cycle `PositionFilled` events that were
+already present in the mainnet index but absent from their materialized orbit
+level snapshots. The canonical events, receipts, activation summaries, and
+payments were intact; only the rebuildable user-facing projections were stale.
+
+The affected views were rebuilt through the production orbit read service and
+the same audit was repeated. The verified result was:
+
+- canonical registered and activated users: 480;
+- indexed orbit events: 8,066;
+- indexed `PositionFilled` events: 1,795;
+- indexed receipts: 1,713;
+- duplicate indexed event keys: 0;
+- activations without receipts: 0;
+- missing Level 1 snapshots: 0;
+- internal snapshot mismatches: 0;
+- current-cycle placement/snapshot mismatches: 0.
+
+The indexer now coalesces orbit and receipt writes by orbit owner and level and
+refreshes one snapshot after each event burst. Refresh concurrency is limited
+to one. This closes the stale-view window without enabling periodic polling;
+confirmed reconnect recovery and live WebSocket capture remain unchanged.
