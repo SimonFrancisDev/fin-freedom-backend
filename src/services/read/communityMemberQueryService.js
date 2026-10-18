@@ -7,6 +7,7 @@ import IndexedRegistrationEvent from '../../models/IndexedRegistrationEvent.js';
 import IndexedOrbitEvent from '../../models/IndexedOrbitEvent.js'
 import IndexedEscrowEvent from '../../models/IndexedEscrowEvent.js';
 import ReferralCode from '../../models/ReferralCode.js';
+import { fetchWalletEcosystemEarnings } from '../../ecosystemEarningsQueryService.js';
 
 const CACHE_TTL_MS = 15000;
 const cache = new Map();
@@ -257,7 +258,7 @@ export async function fetchCommunityMemberSummary(address) {
     const contracts = getContracts();
     const registration = contracts.registration;
 
-    const [receiptRows, tokenBalances, isRegisteredRaw, referrerRaw, highestActiveLevelRaw, releasedEscrowRaw, id1WalletRaw] =
+    const [receiptRows, tokenBalances, isRegisteredRaw, referrerRaw, highestActiveLevelRaw, releasedEscrowRaw, id1WalletRaw, ecosystemEarnings] =
       await Promise.all([
         IndexedReceipt.find({ receiver: normalizedLower })
           .select('liquidPaid escrowLocked grossAmount')
@@ -274,6 +275,7 @@ export async function fetchCommunityMemberSummary(address) {
         tryRpc((provider) =>
           registration.connect(provider).id1Wallet(),
         ethers.ZeroAddress),
+        fetchWalletEcosystemEarnings(normalizedLower),
       ]);
 
     const isProtocolId1Wallet = lower(id1WalletRaw) === normalizedLower;
@@ -312,6 +314,7 @@ export async function fetchCommunityMemberSummary(address) {
         escrowReleasedToUser: 'indexed_escrow_events',
         tokens: 'live_token_balances_with_fallback',
       },
+      ecosystemEarnings,
       totalReceiptCount: receiptRows.length,
       fgtTotal: formatTokenAmount(tokenBalances.fgtBalances?.[0] || 0),
       fgtLocked: formatTokenAmount(tokenBalances.fgtBalances?.[1] || 0),

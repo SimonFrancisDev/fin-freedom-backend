@@ -15,6 +15,7 @@ import { buildOrbitLevelSnapshot } from '../snapshots/orbitLevelSnapshotBuilder.
 import { buildOrbitPositionSnapshot } from '../snapshots/orbitPositionSnapshotBuilder.js';
 import { buildOrbitCycleSnapshot } from '../snapshots/orbitCycleSnapshotBuilder.js';
 import { enrichWalletIdentities } from './identityEnrichmentService.js';
+import { fetchWalletEcosystemEarnings } from '../../ecosystemEarningsQueryService.js';
 
 import env from '../../config/env.js';
 
@@ -2188,7 +2189,7 @@ export const fetchUserGlobalSummary = safeApiResponse(async function(address) {
   //   fetchUserEscrowMetrics(normalizedAddress),
   // ]);
 
-  const [walletReceipts, tokenEvents, tokenEligibilityEvents, escrowMetrics] = await Promise.all([
+  const [walletReceipts, tokenEvents, tokenEligibilityEvents, escrowMetrics, ecosystemEarnings] = await Promise.all([
     IndexedReceipt.find({ receiver: normalizedAddress }).lean(),
     IndexedTokenEvent.find({ userAddress: normalizedAddress })
       .sort({ timestamp: -1 })
@@ -2200,6 +2201,7 @@ export const fetchUserGlobalSummary = safeApiResponse(async function(address) {
       .sort({ timestamp: -1, blockNumber: -1, logIndex: -1 })
       .lean(),
     fetchUserEscrowMetrics(normalizedAddress),
+    fetchWalletEcosystemEarnings(normalizedAddress),
   ]);
 
   const generatedReceipts = walletReceipts;
@@ -2262,6 +2264,7 @@ export const fetchUserGlobalSummary = safeApiResponse(async function(address) {
 
   return {
     address: normalizedAddress,
+    ecosystemEarnings,
 
     earnings: {
       ...earningsSummary.viewerBreakdown,

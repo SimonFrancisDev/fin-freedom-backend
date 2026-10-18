@@ -8,6 +8,7 @@ import FreedomPlusLedgerEntry from '../../models/FreedomPlusLedgerEntry.js';
 import FreedomPlusParticipant from '../../models/FreedomPlusParticipant.js';
 import ReferralCode from '../../models/ReferralCode.js';
 import { fetchCanonicalParticipantCounts } from './canonicalParticipantService.js';
+import { fetchAllEcosystemEarnings } from '../../ecosystemEarningsQueryService.js';
 
 const CACHE_TTL_MS = 15000;
 const cache = new Map();
@@ -158,47 +159,22 @@ export async function fetchCommunityLeaderboard(limit = 20) {
   const cacheKey = `community-analytics:leaderboard:${safeLimit}`;
 
   return cached(cacheKey, async () => {
-    const [rows, escrowReleases, freedomPlusPayments, founderIncome] = await Promise.all([
-      IndexedReceipt.find({ chainId: env.CHAIN_ID }).select('receiver liquidPaid grossAmount escrowLocked').lean(),
-      IndexedEscrowEvent.find({ chainId: env.CHAIN_ID, eventName: 'EscrowReleasedToUser' })
-        .select('user amount').lean(),
-      FreedomPlusPayment.find({ chainId: env.CHAIN_ID })
-        .select('recipient amount').lean(),
-      FreedomPlusLedgerEntry.find({ chainId: env.CHAIN_ID, category: 'founder_income' })
-        .select('wallet amount').lean(),
-    ]);
-
-    const grouped = new Map();
-
-    for (const row of rows) {
-      const current = ensureEarningsRow(grouped, row.receiver);
-      if (!current) continue;
-      current.totalLiquid += BigInt(row.liquidPaid || '0');
-      current.totalGross += BigInt(row.grossAmount || '0');
-      current.totalEscrow += BigInt(row.escrowLocked || '0');
-      current.receiptCount += 1;
-    }
-    for (const release of escrowReleases) {
-      const current = ensureEarningsRow(grouped, release.user);
-      if (!current) continue;
-      current.totalLiquid += BigInt(release.amount || '0');
-    }
-    addFreedomPlusEarnings(grouped, freedomPlusPayments, founderIncome);
-
+    const grouped = await fetchAllEcosystemEarnings();
     const sorted = Array.from(grouped.values())
       .sort((a, b) => {
-        if (a.totalLiquid === b.totalLiquid) return b.receiptCount - a.receiptCount;
-        return a.totalLiquid > b.totalLiquid ? -1 : 1;
+        if (a.totalEarnedRaw === b.totalEarnedRaw) return b.activityCount - a.activityCount;
+        return a.totalEarnedRaw > b.totalEarnedRaw ? -1 : 1;
       })
       .slice(0, safeLimit);
 
     return attachReferralIds(sorted.map((row, index) => ({
       rank: index + 1,
       address: row.address,
-      totalEarned: formatRawUsdt(row.totalLiquid),
-      totalGross: formatRawUsdt(row.totalGross),
-      totalEscrow: formatRawUsdt(row.totalEscrow),
-      receiptCount: row.receiptCount,
+      totalEarned: formatRawUsdt(row.totalEarnedRaw),
+      totalGross: formatRawUsdt(row.totalEarnedRaw),
+      totalEscrow: formatRawUsdt(row.escrowReservedRaw),
+      walletCredited: formatRawUsdt(row.walletCreditedRaw),
+      receiptCount: row.activityCount,
     })));
   });
 }
