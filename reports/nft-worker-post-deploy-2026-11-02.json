@@ -1,0 +1,51 @@
+{
+  "checkedAt": "2026-11-02T04:46:21.068Z",
+  "database": "finfreedom",
+  "deployment": "dep-dbk1aelg1s2s7390um7g",
+  "deployedCommit": "02389acb260097bbc6532ef3361413766dcb07d0",
+  "deploymentStatus": "live",
+  "job": {
+    "chainId": 137,
+    "distributor": "0xd3b9637281c41fc7575af34d5e63c4de2d86c838",
+    "periodId": 1,
+    "createdAt": "2026-11-01T00:00:26.698Z",
+    "cursor": 0,
+    "lastError": "Awaiting founders execution of NFT funding proposal 128",
+    "leaseUntil": "1970-01-01T00:00:00.000Z",
+    "poolAmount": "",
+    "status": "pending",
+    "transactionHashes": [],
+    "updatedAt": "2026-11-02T04:46:14.008Z"
+  },
+  "snapshot": {
+    "periodId": 1,
+    "chainId": 137,
+    "counts": [
+      4,
+      0,
+      0
+    ],
+    "createdAt": "2026-11-02T04:41:31.365Z",
+    "cutoff": "2026-11-01T00:00:00.000Z",
+    "cutoffBlock": 96523828,
+    "cycleId": 1,
+    "distributionAt": "2026-11-02T00:00:00.000Z",
+    "excludedWallets": [
+      "0xce38722a72c9099d9237897e18b0cfb6d51c4470"
+    ],
+    "membershipAddress": "0xef54b5b9038a282c651e2992b885d074fb43dcdb",
+    "month": 11,
+    "proofDataAvailable": true,
+    "publishedTxHash": "",
+    "roots": [
+      "0xe2249ae62ba662a75ef81d6f04d11da6b522fc9da5e086b6a6a2ba8f01fd3971",
+      "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "0x0000000000000000000000000000000000000000000000000000000000000000"
+    ],
+    "sourceEventCount": 7,
+    "status": "draft",
+    "updatedAt": "2026-11-02T04:41:31.365Z",
+    "year": 2026
+  },
+  "snapshotMatchesAudit": true
+}

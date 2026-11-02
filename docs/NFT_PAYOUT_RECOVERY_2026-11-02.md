@@ -122,3 +122,27 @@ Evidence:
 - `reports/nft-cycle-1-eligibility-2026-11-02.json`
 - `reports/nft-recovery-proposals-2026-11-02.json`
 - `reports/nft-worker-rollout-2026-11-02.json`
+
+## Verified deployment outcome
+
+At 2026-11-02 04:46:21 UTC, production deployment
+`dep-dbk1aelg1s2s7390um7g` was live on code commit
+`02389acb260097bbc6532ef3361413766dcb07d0` (building on payout fix `797e79c`).
+The production worker created the cycle-1 draft snapshot with counts [4,0,0]
+and roots exactly matching the independent historical chain audit. The job
+was last updated at 04:46:14 UTC with:
+
+`Awaiting founders execution of NFT funding proposal 128`
+
+Cursor is zero, transaction hashes are empty, and no payout publication or
+payment is claimed. Next required owner actions: execute proposal 129 first,
+then 128. The authorized replacement is funded with 3.90 POL. The running
+worker will re-read the live unreserved pool before publishing the cycle.
+
+Both staging services were verified suspended during rollout; neither was
+resumed. The worker's 115 environment entries were preserved apart from the
+documented payout-key and HTTP/WebSocket endpoint updates. No database reset
+or manual database mutation was performed. The worker's draft snapshot and
+job updates are its normal application writes.
+
+Final runtime evidence: `reports/nft-worker-post-deploy-2026-11-02.json`.

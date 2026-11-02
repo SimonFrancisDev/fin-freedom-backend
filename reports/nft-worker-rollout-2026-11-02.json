@@ -1,0 +1,82 @@
+{
+  "serviceId": "srv-d7eit4favr4c73c08t8g",
+  "checkedAt": "2026-11-02T04:44:42.642Z",
+  "environmentCount": 115,
+  "operatorBefore": "0xfFe24eD92941c30832fAcC60dabfd13608062DCa",
+  "rpcHostsBefore": [
+    {
+      "key": "RPC_URL_1",
+      "host": "sleek-floral-sunset.matic.quiknode.pro"
+    },
+    {
+      "key": "RPC_URL_2",
+      "host": "sleek-floral-sunset.matic.quiknode.pro"
+    }
+  ],
+  "configured": true,
+  "updatedKeys": [
+    "NFT_REWARD_OPERATOR_PRIVATE_KEY",
+    "RPC_URL_1",
+    "WS_RPC_URL_1",
+    "WS_RPC_URL_2"
+  ],
+  "unrelatedEnvironmentPreserved": true,
+  "operatorAfter": "0xfFe24eD92941c30832fAcC60dabfd13608062DCa",
+  "deploys": [
+    {
+      "id": "dep-dbk169lg1s2s7390jdqg",
+      "status": "live",
+      "commit": "797e79c1449c13c0f2db2aec3e5d6019c19f71b9"
+    },
+    {
+      "id": "dep-dbk12ioae00c73fhbn6g",
+      "status": "deactivated",
+      "commit": "797e79c1449c13c0f2db2aec3e5d6019c19f71b9"
+    },
+    {
+      "id": "dep-dbhdtq29lscs739jcjug",
+      "status": "deactivated",
+      "commit": "28f010a2afa7054c0054aae5e0d6e1286b128618"
+    },
+    {
+      "id": "dep-dbaeuvu7bikc73ecf5p0",
+      "status": "deactivated",
+      "commit": "28f010a2afa7054c0054aae5e0d6e1286b128618"
+    },
+    {
+      "id": "dep-dbad7jss728c738vptn0",
+      "status": "deactivated",
+      "commit": "df41995227ac14a117f20803df1043c07e755015"
+    },
+    {
+      "id": "dep-dba0j9u1egvs738tdp3g",
+      "status": "deactivated",
+      "commit": "df41995227ac14a117f20803df1043c07e755015"
+    },
+    {
+      "id": "dep-db9vje7btjjs73d7gaeg",
+      "status": "deactivated",
+      "commit": "8d351357b6dade23feb1e96383b279deab910347"
+    },
+    {
+      "id": "dep-db3o41mgekts73fil0pg",
+      "status": "deactivated",
+      "commit": "ebe0a651abfb72ea5b987dd380a4110a5dbfdd96"
+    },
+    {
+      "id": "dep-db3m60lg1s2s73b18cfg",
+      "status": "deactivated",
+      "commit": "d8f2229d80126242ab4c345980165abc0718b0eb"
+    },
+    {
+      "id": "dep-db1230hsrm7s739msobg",
+      "status": "deactivated",
+      "commit": "235cf00e2989b731a97cfd9e918ddf06f9a4d418"
+    }
+  ],
+  "deployment": {
+    "id": "dep-dbk1aelg1s2s7390um7g",
+    "status": "build_in_progress",
+    "commit": "02389acb260097bbc6532ef3361413766dcb07d0"
+  }
+}
