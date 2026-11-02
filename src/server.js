@@ -72,6 +72,25 @@ async function startServer() {
       process.exit(1);
     });
 
+    const shutdown = async (signal) => {
+      console.log(`${signal} received. Shutting down gracefully...`);
+      await stopNftRewardDistributionWorker();
+      await stopRealtimeEventIndexer();
+      await stopFreedomPlusIndexer();
+      await stopIndexer();
+      stopNotificationDeliveryWorker();
+      server.close(() => {
+        console.log('HTTP server closed.');
+        process.exit(0);
+      });
+    };
+
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
+
+    // Payouts validate their own cutoff and must not wait for unrelated recovery.
+    startNftRewardDistributionWorker();
+
     // if (env.RUN_INDEXER) {
     //   startIndexer().catch((error) => {
     //     console.error('Indexer startup error:', error);
@@ -107,23 +126,6 @@ async function startServer() {
     }
 
     startNotificationDeliveryWorker();
-    startNftRewardDistributionWorker();
-
-    const shutdown = async (signal) => {
-      console.log(`${signal} received. Shutting down gracefully...`);
-      await stopNftRewardDistributionWorker();
-      await stopRealtimeEventIndexer();
-      await stopFreedomPlusIndexer();
-      await stopIndexer();
-      stopNotificationDeliveryWorker();
-      server.close(() => {
-        console.log('HTTP server closed.');
-        process.exit(0);
-      });
-    };
-
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
-    process.on('SIGINT', () => shutdown('SIGINT'));
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);

@@ -58,8 +58,14 @@ in the qualifying cutoff membership set. It must not be added to cycle 1.
    Other exposed application/database credentials require separate rotation;
    they have not been silently changed as part of this payout repair.
 6. At 04:14 UTC the hosted job also reported an RPC TLS error. The rollout
-   updates the worker's HTTP RPC entries to the user-supplied, verified
-   sleek-floral-sunset endpoint. No bulk environment replacement is used.
+   updates the worker's HTTP and WebSocket RPC entries to the user-supplied,
+   verified sleek-floral-sunset endpoint. Both transports returned mainnet
+   chain ID 137. The initial rollout exposed a startup wait on the old failing
+   WebSocket endpoint, so both transports must be updated. No bulk environment
+   replacement is used, and polling remains disabled.
+7. Decoupled payout-worker startup from general indexer startup recovery.
+   Its own NFT cutoff/checkpoint validation remains mandatory. Shutdown handlers
+   are registered first so payout leases can be released on deployment shutdown.
 
 ## Founders' actions
 
@@ -67,6 +73,8 @@ Multisig: `0x785cC854ce9e13CE1140cbFD7C08620713E1711d`.
 Both proposals were simulated successfully before submission. They need
 three owner confirmations and owner execution; the timelock is 120 seconds.
 The agent submitted proposals only, not founder approvals or executions.
+Execute 129 first to revoke the exposed operator, then execute 128 to consolidate
+the funds. Do not reverse that order.
 
 - Proposal **128**: move exactly 3,306.24 USDT0 from previous NFT vault
   `0xf8F60Da42681b73DFeCa7731E78b29C8707C184b` into shared NFT vault
@@ -84,14 +92,14 @@ This was gas funding only, not a USDT reward payment.
 
 ## Validation and rollout
 
-38 focused tests passed: worker publication, retry idempotency, wrong-chain
+39 focused tests passed: startup-order regression, worker publication, retry idempotency, wrong-chain
 rejection, real manager ABI, ID1 exclusion, live funding, recovery governance,
 schedule, Merkle proofs and bounded membership catch-up.
 
 Commands, from backend:
 
 ```powershell
-node --test test/nftRewardDistributionWorker.test.js test/nftRewardFundingRecovery.test.js test/nftRewardSchedule.test.js test/freedomPlusRewardSnapshot.test.js test/nftMembershipCatchup.test.js
+node --test test/nftRewardDistributionWorker.test.js test/nftRewardFundingRecovery.test.js test/nftRewardSchedule.test.js test/freedomPlusRewardSnapshot.test.js test/nftMembershipCatchup.test.js test/nftWorkerStartupOrder.test.js
 node scripts/auditNftCycleEligibility.mjs
 ```
 

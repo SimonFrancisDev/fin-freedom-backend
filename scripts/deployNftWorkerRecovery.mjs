@@ -60,6 +60,11 @@ try {
     if (before.get('RPC_URL_2') === 'https://boldest-tame-waterfall.matic.quiknode.pro/fa63c1cd095f07f3d7876ea5d2bfa6b798d35e8a/') {
       changes.set('RPC_URL_2', expectedRpc);
     }
+    for (const name of ['WS_RPC_URL_1', 'WS_RPC_URL_2', 'WS_RPC_URL_3', 'WS_RPC_URL']) {
+      if (before.get(name) === 'wss://boldest-tame-waterfall.matic.quiknode.pro/fa63c1cd095f07f3d7876ea5d2bfa6b798d35e8a/') {
+        changes.set(name, expectedRpc.replace('https:', 'wss:'));
+      }
+    }
     for (const [name, value] of changes) {
       if (before.get(name) !== value) await request(`/services/${worker}/env-vars/${name}`, 'PUT', { value });
     }
@@ -81,6 +86,7 @@ try {
   if (process.argv.includes('--deploy')) {
     if (!report.configured || !/^[a-f0-9]{40}$/.test(sha || '')) throw new Error('Configuration and exact commit required');
     let deploy = deploys.find(({ deploy: item }) => item.commit?.id === sha && !['build_failed', 'update_failed', 'canceled', 'deactivated'].includes(item.status))?.deploy;
+    if (process.argv.includes('--redeploy')) deploy = null;
     if (!deploy) deploy = await request(`/services/${worker}/deploys`, 'POST', { commitId: sha, clearCache: 'do_not_clear' });
     report.deployment = { id: deploy.id, status: deploy.status, commit: deploy.commit?.id || sha };
   }
