@@ -1,0 +1,223 @@
+{
+  "checkedAt": "2026-11-02T04:14:43.281Z",
+  "chainId": 137,
+  "blockNumber": 96591603,
+  "blockTime": "2026-11-02T04:14:21.000Z",
+  "cutoffBlock": 96523828,
+  "cutoff": "2026-11-01T00:00:00.000Z",
+  "distributionAt": "2026-11-02T00:00:00.000Z",
+  "membership": "0xef54b5B9038A282c651E2992B885D074fb43DcDb",
+  "distributor": "0xD3b9637281C41fc7575aF34d5e63C4dE2D86c838",
+  "id1": "0xCE38722a72c9099D9237897E18B0cfb6D51c4470",
+  "operator": "0xcDE2a3A6dcD046D3550421272DD329Dd81146604",
+  "operatorPol": "4.0",
+  "fees": {
+    "maxFeePerGas": "299144638564",
+    "maxPriorityFeePerGas": "25000000000"
+  },
+  "fundingPolicy": "All live unreserved pool funds at publication; only membership eligibility freezes at cutoff",
+  "currentAvailable": "1717.6",
+  "currentReserved": "0.0",
+  "legacy": "3306.24",
+  "combinedAvailable": "5023.84",
+  "created": false,
+  "publishedPool": "0.0",
+  "membersAtCutoff": [
+    {
+      "wallet": "0xe8b1ac47231651ccc38326a59645a8d976d0eabf",
+      "tokenId": 2,
+      "tier": 1,
+      "rewardEligible": true,
+      "lockedFGT": "5100000000",
+      "lockedFPT": "600000000",
+      "excluded": false
+    },
+    {
+      "wallet": "0xaa254e8e177de104d9f87211b0f4a6b7ec71306a",
+      "tokenId": 3,
+      "tier": 1,
+      "rewardEligible": true,
+      "lockedFGT": "0",
+      "lockedFPT": "5700000000",
+      "excluded": false
+    },
+    {
+      "wallet": "0xb673c9d14da920f187d25cc793f1955a43284622",
+      "tokenId": 4,
+      "tier": 1,
+      "rewardEligible": true,
+      "lockedFGT": "0",
+      "lockedFPT": "5700000000",
+      "excluded": false
+    },
+    {
+      "wallet": "0x117c9258a95775ecf448fd086d00ca22506ea79d",
+      "tokenId": 6,
+      "tier": 1,
+      "rewardEligible": true,
+      "lockedFGT": "0",
+      "lockedFPT": "5700000000",
+      "excluded": false
+    }
+  ],
+  "membersNow": [
+    {
+      "wallet": "0xe8b1ac47231651ccc38326a59645a8d976d0eabf",
+      "tokenId": 2,
+      "tier": 1,
+      "rewardEligible": true,
+      "lockedFGT": "5100000000",
+      "lockedFPT": "600000000"
+    },
+    {
+      "wallet": "0xaa254e8e177de104d9f87211b0f4a6b7ec71306a",
+      "tokenId": 3,
+      "tier": 1,
+      "rewardEligible": true,
+      "lockedFGT": "0",
+      "lockedFPT": "5700000000"
+    },
+    {
+      "wallet": "0xb673c9d14da920f187d25cc793f1955a43284622",
+      "tokenId": 4,
+      "tier": 1,
+      "rewardEligible": true,
+      "lockedFGT": "0",
+      "lockedFPT": "5700000000"
+    },
+    {
+      "wallet": "0x117c9258a95775ecf448fd086d00ca22506ea79d",
+      "tokenId": 6,
+      "tier": 1,
+      "rewardEligible": true,
+      "lockedFGT": "0",
+      "lockedFPT": "5700000000"
+    },
+    {
+      "wallet": "0xea2bcf620d164af63fba2f832c5f37e9eabdc528",
+      "tokenId": 7,
+      "tier": 1,
+      "rewardEligible": true,
+      "lockedFGT": "5050000000",
+      "lockedFPT": "650000000"
+    }
+  ],
+  "eligibleCount": 4,
+  "tiers": [
+    {
+      "tier": 1,
+      "count": 4,
+      "allocation": "2511.92",
+      "perMember": "627.98",
+      "paidIfPublishedNow": "2511.92",
+      "retained": "0.0",
+      "root": "0xe2249ae62ba662a75ef81d6f04d11da6b522fc9da5e086b6a6a2ba8f01fd3971",
+      "members": [
+        {
+          "wallet": "0x117c9258a95775ecf448fd086d00ca22506ea79d",
+          "tokenId": 6,
+          "tier": 1,
+          "rewardEligible": true,
+          "lockedFGT": "0",
+          "lockedFPT": "5700000000",
+          "excluded": false,
+          "leaf": "0x3eb0aa32aab4ddf0ea2dc6282f3d1308abd30b309533d5a359ed28a60a16685e",
+          "amountRaw": "627980000",
+          "amount": "627.98",
+          "proof": [
+            "0xfb6580cbba60ddb0094ca30f7d9f0a1c7e3d0572bf8b3718c34cfabe6c8a36bd",
+            "0x099029972bef14ea3df38714ff599716f47fcfb3eadf2153c7154b42b01dca56"
+          ]
+        },
+        {
+          "wallet": "0xaa254e8e177de104d9f87211b0f4a6b7ec71306a",
+          "tokenId": 3,
+          "tier": 1,
+          "rewardEligible": true,
+          "lockedFGT": "0",
+          "lockedFPT": "5700000000",
+          "excluded": false,
+          "leaf": "0xfb6580cbba60ddb0094ca30f7d9f0a1c7e3d0572bf8b3718c34cfabe6c8a36bd",
+          "amountRaw": "627980000",
+          "amount": "627.98",
+          "proof": [
+            "0x3eb0aa32aab4ddf0ea2dc6282f3d1308abd30b309533d5a359ed28a60a16685e",
+            "0x099029972bef14ea3df38714ff599716f47fcfb3eadf2153c7154b42b01dca56"
+          ]
+        },
+        {
+          "wallet": "0xb673c9d14da920f187d25cc793f1955a43284622",
+          "tokenId": 4,
+          "tier": 1,
+          "rewardEligible": true,
+          "lockedFGT": "0",
+          "lockedFPT": "5700000000",
+          "excluded": false,
+          "leaf": "0x3ee021146858ee8aae0a68a9dabb81d1025b78f8f0edad1c7781ba17a2d084e5",
+          "amountRaw": "627980000",
+          "amount": "627.98",
+          "proof": [
+            "0x43d297d59921a45760866c079bff9bd8e9aa52318754364e544eb06a12c5c3d0",
+            "0x40a9360390b700d43e6c8e8ccfae0c2f26564e0aee4a0982c923e21b17f3d647"
+          ]
+        },
+        {
+          "wallet": "0xe8b1ac47231651ccc38326a59645a8d976d0eabf",
+          "tokenId": 2,
+          "tier": 1,
+          "rewardEligible": true,
+          "lockedFGT": "5100000000",
+          "lockedFPT": "600000000",
+          "excluded": false,
+          "leaf": "0x43d297d59921a45760866c079bff9bd8e9aa52318754364e544eb06a12c5c3d0",
+          "amountRaw": "627980000",
+          "amount": "627.98",
+          "proof": [
+            "0x3ee021146858ee8aae0a68a9dabb81d1025b78f8f0edad1c7781ba17a2d084e5",
+            "0x40a9360390b700d43e6c8e8ccfae0c2f26564e0aee4a0982c923e21b17f3d647"
+          ]
+        }
+      ]
+    },
+    {
+      "tier": 2,
+      "count": 0,
+      "allocation": "1507.152",
+      "perMember": "0.0",
+      "paidIfPublishedNow": "0.0",
+      "retained": "1507.152",
+      "root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "members": []
+    },
+    {
+      "tier": 3,
+      "count": 0,
+      "allocation": "1004.768",
+      "perMember": "0.0",
+      "paidIfPublishedNow": "0.0",
+      "retained": "1004.768",
+      "root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "members": []
+    }
+  ],
+  "database": {
+    "name": "finfreedom",
+    "eventCount": 7,
+    "matchesCutoff": true,
+    "jobs": [
+      {
+        "chainId": 137,
+        "distributor": "0xd3b9637281c41fc7575af34d5e63c4de2d86c838",
+        "periodId": 1,
+        "createdAt": "2026-11-01T00:00:26.698Z",
+        "cursor": 0,
+        "lastError": "write EPROTO C0AC5D5FF3750000:error:0A000438:SSL routines:ssl3_read_bytes:tlsv1 alert internal error:../deps/openssl/openssl/ssl/record/rec_layer_s3.c:916:SSL alert number 80\n",
+        "leaseUntil": "1970-01-01T00:00:00.000Z",
+        "poolAmount": "",
+        "status": "pending",
+        "transactionHashes": [],
+        "updatedAt": "2026-11-02T04:14:27.494Z"
+      }
+    ]
+  }
+}

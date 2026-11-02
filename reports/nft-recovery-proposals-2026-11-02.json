@@ -1,0 +1,43 @@
+{
+  "proposals": [
+    {
+      "kind": "consolidate-nft-pool",
+      "to": "0xf8F60Da42681b73DFeCa7731E78b29C8707C184b",
+      "data": "0x64f2b0dc000000000000000000000000bb2cf7ef867f46a93ae1f9ded564927874b79b5200000000000000000000000000000000000000000000000000000000c511380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000004b436f6e736f6c6964617465206c6567616379204e46542066756e647320696e746f20736861726564204e465420726577617264207661756c743b206379636c652031207265636f76657279000000000000000000000000000000000000000000",
+      "proposalId": 128,
+      "executed": false,
+      "confirmations": 0,
+      "simulationPassed": true,
+      "txHash": "0xd9b7b5b52ba7ab4a11fe28b14c7742a697e7f3244f7f555a8a99ee6d63645ca6",
+      "blockNumber": 96591775
+    },
+    {
+      "kind": "replace-exposed-payout-operator",
+      "to": "0xD3b9637281C41fc7575aF34d5e63C4dE2D86c838",
+      "data": "0x5b463e4e000000000000000000000000ffe24ed92941c30832facc60dabfd13608062dca",
+      "proposalId": 129,
+      "executed": false,
+      "confirmations": 0,
+      "simulationPassed": true,
+      "txHash": "0x4724e4e69f5e2083b1fc014bc3adb93e74ce32ae445dbb5a57e0d481785c6200",
+      "blockNumber": 96591780
+    }
+  ],
+  "chainId": 137,
+  "checkedAt": "2026-11-02T04:18:36.123Z",
+  "multisig": "0x785cC854ce9e13CE1140cbFD7C08620713E1711d",
+  "replacementOperator": "0xfFe24eD92941c30832fAcC60dabfd13608062DCa",
+  "previousOperator": "0xcDE2a3A6dcD046D3550421272DD329Dd81146604",
+  "transferAmountRaw": "3306240000",
+  "recipientVault": "0xbb2cF7ef867F46A93ae1F9DEd564927874b79B52",
+  "requiredConfirmations": 3,
+  "timelockSeconds": 120,
+  "approvalsExecutedByThisScript": false,
+  "operatorFunding": {
+    "from": "0xcDE2a3A6dcD046D3550421272DD329Dd81146604",
+    "to": "0xfFe24eD92941c30832fAcC60dabfd13608062DCa",
+    "amountPol": "3.90",
+    "txHash": "0xbb170f93cf8f9b1d1afbeb445c3d9c3c2eb3e36885a2c700a6fd1dd1f4fb7023",
+    "blockNumber": 96591784
+  }
+}

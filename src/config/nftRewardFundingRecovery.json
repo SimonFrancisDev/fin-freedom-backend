@@ -1,0 +1,14 @@
+{
+  "chainId": 137,
+  "cycleId": 1,
+  "distributor": "0xD3b9637281C41fc7575aF34d5e63C4dE2D86c838",
+  "token": "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
+  "vault": "0xbb2cF7ef867F46A93ae1F9DEd564927874b79B52",
+  "legacyVault": "0xf8F60Da42681b73DFeCa7731E78b29C8707C184b",
+  "multisig": "0x785cC854ce9e13CE1140cbFD7C08620713E1711d",
+  "cutoffBlock": 96523828,
+  "cutoffSeconds": 1793491200,
+  "amountRaw": "3306240000",
+  "proposalId": 128,
+  "reason": "Consolidate legacy NFT funds into shared NFT reward vault; cycle 1 recovery"
+}

@@ -3,6 +3,8 @@ import { Wallet } from 'ethers';
 import env from '../config/env.js';
 import { getProvider } from '../blockchain/provider.js';
 import { getFreedomPlusContracts } from '../blockchain/freedomPlusContracts.js';
+import { getContracts } from '../blockchain/contracts.js';
+import { legacyRewardFunding } from './nftRewardFundingRecovery.js';
 import Job from '../models/NftRewardDistributionJob.js';
 import Snapshot from '../models/FreedomPlusRewardSnapshot.js';
 import { buildFreedomPlusRewardSnapshot } from './freedomPlusRewardSnapshotService.js';
@@ -21,14 +23,17 @@ export async function runNftRewardDistributionPass(dependencies = {}) {
     env: config = env, Job: jobs = Job, Snapshot: snapshots = Snapshot,
     getProvider: providerFactory = getProvider,
     getFreedomPlusContracts: contractsFactory = getFreedomPlusContracts,
+    getContracts: ffContractsFactory = getContracts,
+    legacyRewardFunding: recoveryFunding = legacyRewardFunding,
     Wallet: Signer = Wallet, buildSnapshot = buildFreedomPlusRewardSnapshot,
     shouldStop = () => stopped,
   } = dependencies;
-  return executePass(config, jobs, snapshots, providerFactory, contractsFactory, Signer, buildSnapshot, shouldStop);
+  return executePass(config, jobs, snapshots, providerFactory, contractsFactory, Signer, buildSnapshot,
+    shouldStop, ffContractsFactory, recoveryFunding);
 }
 
 async function executePass(env, Job, Snapshot, getProvider, getFreedomPlusContracts, Wallet,
-  buildFreedomPlusRewardSnapshot, shouldStop) {
+  buildFreedomPlusRewardSnapshot, shouldStop, getFFContracts, recoveryFunding) {
   const now = new Date();
   const periods = rewardCyclesReadyForSnapshot(env.NFT_REWARD_FIRST_DISTRIBUTION_AT, now);
   // Before the first cutoff, after snapshot freeze, and after completion, no RPC reads are made.
@@ -54,7 +59,7 @@ async function executePass(env, Job, Snapshot, getProvider, getFreedomPlusContra
     const owned = { ...key, leaseOwner: processId };
     try {
       const provider = getProvider();
-      if (Number((await provider.getNetwork()).chainId) !== env.CHAIN_ID) throw new Error('NFT worker chain mismatch');
+      if (Number(BigInt(await provider.send('eth_chainId', []))) !== env.CHAIN_ID) throw new Error('NFT worker chain mismatch');
       const contracts = getFreedomPlusContracts(provider);
       const signer = new Wallet(env.NFT_REWARD_OPERATOR_PRIVATE_KEY, provider);
       const distributor = contracts.nftRewardDistributor.connect(signer);
@@ -64,7 +69,7 @@ async function executePass(env, Job, Snapshot, getProvider, getFreedomPlusContra
       if (await distributor.firstDistributionAt() !== configuredFirstDistribution) {
         throw new Error('NFT worker schedule differs from the on-chain cycle schedule');
       }
-      const id1Wallet = await contracts.levelManager.id1Wallet();
+      const id1Wallet = await getFFContracts().levelManager.connect(provider).id1Wallet();
       if (!(await distributor.rewardExcluded(id1Wallet))) {
         throw new Error('NFT ID1 reward exclusion is not active on chain');
       }
@@ -77,32 +82,48 @@ async function executePass(env, Job, Snapshot, getProvider, getFreedomPlusContra
         return;
       }
       let period = await distributor.periodOf(target.periodId);
+      const token = await distributor.rewardToken();
+      if ((await distributor.vault()).toLowerCase() !== contracts.nftPoolVault.target.toLowerCase()) {
+        throw new Error('NFT distributor and worker vault mismatch');
+      }
       if (!period.created) {
+        await recoveryFunding({ chainId: env.CHAIN_ID, cycleId: target.cycleId,
+          distributor: env.FREEDOM_NFT_REWARD_DISTRIBUTOR_ADDRESS, token,
+          vault: contracts.nftPoolVault.target, provider });
         const operator = await distributor.rewardOperator();
         if (operator.toLowerCase() !== signer.address.toLowerCase()) throw new Error('NFT worker is not the authorized reward operator');
-        const token = await distributor.rewardToken();
-        // Do not distribute funds that arrived after this period's cutoff.
-        const historical = await contracts.nftPoolVault.unreservedBalance(token, { blockTag: snapshot.cutoffBlock });
-        const available = await contracts.nftPoolVault.unreservedBalance(token);
-        const budget = job.poolAmount ? BigInt(job.poolAmount) : (historical < available ? historical : available);
+        // Freeze eligibility, not funding. Migrated funds are already included
+        // in the live unreserved pool and must not be added a second time.
+        const budget = await contracts.nftPoolVault.unreservedBalance(token);
         if (budget === 0n) {
-          if (historical > 0n) throw new Error('Cutoff funds are unavailable; operator review required');
           await Job.updateOne(owned, { $set: { status: 'empty', lastError: '' } });
           continue;
         }
-        if (budget > available) throw new Error('NFT reward pool budget no longer available');
+        if (await provider.getBalance(signer.address) === 0n) throw new Error('NFT reward operator needs native gas funding');
+        const renewed = await Job.updateOne({ ...owned, leaseUntil: { $gt: new Date() } },
+          { $set: { leaseUntil: new Date(Date.now() + LEASE_MS) } });
+        if (renewed.matchedCount !== 1) throw new Error('NFT publication lease lost');
         await Job.updateOne(owned, { $set: { poolAmount: budget.toString() } });
+        job.poolAmount = budget.toString();
         const tx = await distributor.createCycle(target.cycleId, budget, snapshot.roots, snapshot.counts);
         await tx.wait(env.SYNC_CONFIRMATIONS || 1);
         await Job.updateOne(owned, { $push: { transactionHashes: tx.hash } });
+        await Snapshot.updateOne({ chainId: env.CHAIN_ID, periodId: target.periodId },
+          { $set: { publishedTxHash: tx.hash } });
         period = await distributor.periodOf(target.periodId);
       }
+      // Published amounts stay fixed across payout retries, regardless of inflow.
+      if (job.poolAmount && BigInt(job.poolAmount) !== BigInt(period.poolAmount)) {
+        throw new Error('Published NFT budget differs from the saved publication budget');
+      }
       assertRewardSnapshot(period, snapshot);
+      await Job.updateOne(owned, { $set: { poolAmount: period.poolAmount.toString() } });
       await Snapshot.updateOne({ chainId: env.CHAIN_ID, periodId: target.periodId },
         { $set: { status: 'published' } });
       const cursor = Number(job.cursor || 0);
       const batch = snapshot.eligibility.slice(cursor, cursor + 25);
       if (batch.length) {
+        if (await provider.getBalance(signer.address) === 0n) throw new Error('NFT reward operator needs native gas funding');
         const renewed = await Job.updateOne({ ...owned, leaseUntil: { $gt: new Date() } },
           { $set: { leaseUntil: new Date(Date.now() + LEASE_MS) } });
         if (renewed.matchedCount !== 1) throw new Error('NFT payout lease lost');
