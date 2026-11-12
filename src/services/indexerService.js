@@ -1,4 +1,5 @@
 import SyncState from '../models/SyncState.js';
+import { historicalOrbitRepairEventNames, historicalOrbitEventFields } from '../blockchain/historicalOrbitRepair.js';
 import IndexedReceipt from '../models/IndexedReceipt.js';
 import IndexedOrbitEvent from '../models/IndexedOrbitEvent.js';
 import IndexedRegistrationEvent from '../models/IndexedRegistrationEvent.js';
@@ -1066,7 +1067,10 @@ export async function saveOrbitLog(chainId, orbitType, contractAddress, log, par
     return latestReset ? Number(latestReset.cycleNumber || 0) + 1 : 1;
   }
 
-  switch (eventName) {
+  const repairFields = historicalOrbitEventFields(parsed);
+  if (repairFields) {
+    ({ orbitOwner, user, level, position, amount, cycleNumber, line, linePaymentNumber } = repairFields);
+  } else switch (eventName) {
     case 'PositionFilled': {
       orbitOwner = toLower(args.orbitOwner ?? args[0] ?? '');
       user = toLower(args.user ?? args[1] ?? '');
@@ -1492,6 +1496,7 @@ async function processLogsForContract({
         'AutoUpgradeTriggered',
         'PositionActivationLinked',
         'OrbitDependencyUpdated',
+        ...historicalOrbitRepairEventNames,
       ].includes(parsed.name)
     ) {
       await saveOrbitLog(chainId, orbitType, contractAddress, log, parsed, block);

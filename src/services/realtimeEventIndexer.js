@@ -1,6 +1,7 @@
 import { Contract, WebSocketProvider } from 'ethers';
 import env from '../config/env.js';
 import { getContracts } from '../blockchain/contracts.js';
+import { historicalOrbitRepairEventNames } from '../blockchain/historicalOrbitRepair.js';
 import { getFreedomPlusContractEntries } from '../blockchain/freedomPlusContracts.js';
 import {
   notifyFreedomPlusRealtimeEvent,
@@ -183,6 +184,8 @@ function buildListenerSpecs() {
     ['p39Orbit', 'AutoUpgradeTriggered'],
     ['p39Orbit', 'PositionActivationLinked'],
     ['p39Orbit', 'OrbitDependencyUpdated'],
+    ...['p4Orbit', 'p12Orbit', 'p39Orbit'].flatMap(label =>
+      historicalOrbitRepairEventNames.map(name => [label, name])),
     ['fgtToken', 'UtilityMinted'],
     ['fgtToken', 'UtilityBurned'],
     ['fgtToken', 'UtilityLocked'],
@@ -346,6 +349,7 @@ async function processRealtimeEvent({ contract, eventName, label, log }) {
         'AutoUpgradeTriggered',
         'PositionActivationLinked',
         'OrbitDependencyUpdated',
+        ...historicalOrbitRepairEventNames,
       ].includes(parsed.name)
     ) {
       await saveOrbitLog(chainId, orbitType, contract.target, log, parsed, block);

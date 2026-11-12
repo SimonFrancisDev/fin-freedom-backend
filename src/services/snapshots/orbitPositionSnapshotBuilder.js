@@ -1,4 +1,5 @@
 import { ethers } from 'ethers';
+import { applyHistoricalOrbitRepair } from '../../blockchain/historicalOrbitRepair.js';
 import IndexedReceipt from '../../models/IndexedReceipt.js';
 import IndexedOrbitEvent from '../../models/IndexedOrbitEvent.js';
 import OrbitPositionSnapshot from '../../models/OrbitPositionSnapshot.js';
@@ -662,6 +663,11 @@ export async function buildOrbitPositionSnapshot(address, level, position, optio
     ruleView,
   };
 
+  rebuiltSnapshot = applyHistoricalOrbitRepair({
+    snapshot: rebuiltSnapshot, position, cycleNumber: currentCycleNumber,
+    events: filteredEvents, receipts: filteredReceipts, viewedAddress: normalizedAddress,
+    summarizeReceipts: summarizeReceiptsForViewer, shapeReceipts: shapeIndexedReceipts,
+  });
   let preservedFromExisting = false;
 
   if (

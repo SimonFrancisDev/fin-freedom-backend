@@ -1,6 +1,7 @@
 import { Contract } from 'ethers';
 import { getProvider, safeRpcCall } from './provider.js';
 import addresses from './addresses.js';
+import { historicalOrbitRepairAbi } from './historicalOrbitRepair.js';
 
 import levelManagerAbi from './abis/levelManager.abi.json' with { type: 'json' };
 import p4OrbitAbi from './abis/p4Orbit.abi.json' with { type: 'json' };
@@ -49,9 +50,9 @@ export function getContracts() {
       mergeAbi(levelManagerAbi, group3LevelManagerEventAbi),
       provider
     ),
-    p4Orbit: new Contract(addresses.p4Orbit, p4OrbitAbi, provider),
-    p12Orbit: new Contract(addresses.p12Orbit, p12OrbitAbi, provider),
-    p39Orbit: new Contract(addresses.p39Orbit, p39OrbitAbi, provider),
+    p4Orbit: new Contract(addresses.p4Orbit, mergeAbi(p4OrbitAbi, historicalOrbitRepairAbi), provider),
+    p12Orbit: new Contract(addresses.p12Orbit, mergeAbi(p12OrbitAbi, historicalOrbitRepairAbi), provider),
+    p39Orbit: new Contract(addresses.p39Orbit, mergeAbi(p39OrbitAbi, historicalOrbitRepairAbi), provider),
     registration: new Contract(addresses.registration, registrationAbi, provider),
     escrow: new Contract(addresses.escrow, escrowAbi, provider),
     usdt: new Contract(addresses.usdt, usdtAbi, provider),

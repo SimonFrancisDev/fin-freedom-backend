@@ -1,4 +1,5 @@
 import { ethers } from 'ethers';
+import { applyHistoricalOrbitRepair } from '../../blockchain/historicalOrbitRepair.js';
 import IndexedReceipt from '../../models/IndexedReceipt.js';
 import IndexedOrbitEvent from '../../models/IndexedOrbitEvent.js';
 import OrbitCycleSnapshot from '../../models/OrbitCycleSnapshot.js';
@@ -706,6 +707,11 @@ export async function buildOrbitCycleSnapshot(address, level, cycleNumber, optio
     });
   }
 
+  positions = positions.map(snapshot => applyHistoricalOrbitRepair({
+    snapshot, position: snapshot.number, cycleNumber,
+    events: cycleEvents, receipts: cycleReceipts, viewedAddress: normalizedAddress,
+    summarizeReceipts: summarizeReceiptsForViewer, shapeReceipts: shapeIndexedReceipts,
+  }));
   let filledPositions = positions.filter((item) => !!item.occupant).length;
   let preservedFromExisting = false;
 

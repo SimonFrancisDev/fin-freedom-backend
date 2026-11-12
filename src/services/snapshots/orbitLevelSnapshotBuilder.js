@@ -1,4 +1,5 @@
 import { ethers } from 'ethers';
+import { applyHistoricalOrbitRepair } from '../../blockchain/historicalOrbitRepair.js';
 import IndexedReceipt from '../../models/IndexedReceipt.js';
 import IndexedOrbitEvent from '../../models/IndexedOrbitEvent.js';
 import OrbitLevelSnapshot from '../../models/OrbitLevelSnapshot.js';
@@ -693,16 +694,19 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
         Number(receipt.sourcePosition || 0) === positionNumber
     );
 
-    positions.push(
-      buildPositionFromIndexedData({
+    const originalPosition = buildPositionFromIndexedData({
         orbitType,
         positionNumber,
         eventsForPosition,
         receiptsForPosition,
         normalizedAddress,
         currentCycleNumber,
-      })
-    );
+      });
+    positions.push(applyHistoricalOrbitRepair({
+      snapshot: originalPosition, position: positionNumber, cycleNumber: currentCycleNumber,
+      events: currentEvents, receipts: currentReceipts, viewedAddress: normalizedAddress,
+      summarizeReceipts: summarizeReceiptsForViewer,
+    }));
   }
 
   let linePaymentCounts = buildLinePaymentCountsFromEvents(currentEvents);
@@ -742,10 +746,9 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
   }
 
   const filledCurrentPositions = countFilledPositions(positions);
-  const currentPosition =
-  filledCurrentPositions >= positionsCount
-    ? 0
-    : filledCurrentPositions + 1;
+  const currentPosition = currentEvents.some(event => event.eventName === 'HistoricalOrbitSlotRepaired')
+    ? (positions.find(position => !position.occupant)?.number ?? 0)
+    : filledCurrentPositions >= positionsCount ? 0 : filledCurrentPositions + 1;
 
   logDebug('[CURRENT_CYCLE_POSITION_CHECK]', {
     address: normalizedAddress,
