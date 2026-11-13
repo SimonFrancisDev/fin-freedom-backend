@@ -4,6 +4,8 @@ import FreedomPlusPosition from '../models/FreedomPlusPosition.js';
 import FreedomPlusPayment from '../models/FreedomPlusPayment.js';
 import FreedomPlusLedgerEntry from '../models/FreedomPlusLedgerEntry.js';
 import FreedomPlusRewardSnapshot from '../models/FreedomPlusRewardSnapshot.js';
+import FreedomPlusEvent from '../models/FreedomPlusEvent.js';
+import { historicalFreedomPlusPosition } from '../blockchain/freedomPlusHistoricalRepair.js';
 
 const orbitTypes = {
   p39Orbit: 'P39',
@@ -16,6 +18,23 @@ const orbitTypes = {
 
 export async function projectFreedomPlusEvent(event) {
   const { chainId, contractKey, eventName, args, txHash, blockNumber, timestamp } = event;
+
+  if (orbitTypes[contractKey] && eventName === 'FreedomPlusHistoricalPositionRestored') {
+    const original = await FreedomPlusEvent.findOne({
+      chainId, contractKey, eventName: 'PositionRecorded',
+      txHash: String(args.originalTransaction || '').toLowerCase(),
+      'args.participant': args.participant,
+    }).sort({ logIndex: 1 }).lean();
+    const restored = historicalFreedomPlusPosition(event, original);
+    const { orbitType, orbitOwner, level, cycle, position, participant, activationId, placementId } = restored;
+    // A conflicting occupied slot fails its unique index; historical occupants are never overwritten.
+    await FreedomPlusPosition.updateOne(
+      { chainId, orbitType, orbitOwner, level, cycle, position, participant, activationId, placementId },
+      { $setOnInsert: restored }, { upsert: true }
+    );
+    return;
+  }
+  if (orbitTypes[contractKey] && eventName === 'FreedomPlusHistoricalOrbitRestored') return;
 
   if (contractKey === 'registration' && eventName === 'GenesisInitialized') {
     await FreedomPlusParticipant.updateOne(

@@ -18,6 +18,10 @@ const schema = new mongoose.Schema({
   txHash: { type: String, required: true, lowercase: true },
   blockNumber: { type: Number, required: true, index: true },
   timestamp: { type: Date, required: true },
+  historicalRepair: { type: Boolean, default: false },
+  repairTxHash: { type: String, lowercase: true },
+  repairBlockNumber: { type: Number },
+  repairedAt: { type: Date },
 }, { timestamps: true, versionKey: false });
 
 schema.index(

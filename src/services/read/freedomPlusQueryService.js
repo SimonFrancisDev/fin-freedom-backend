@@ -51,7 +51,7 @@ export async function freedomPlusReconciliation() {
     safeRpcCall((rpc) => rpc.getBlockNumber()),
     safeRpcCall((rpc) => contracts.registration.connect(rpc).registeredCount()),
     FreedomPlusParticipant.countDocuments({ chainId: env.CHAIN_ID, registered: true }),
-    FreedomPlusEvent.countDocuments({ chainId: env.CHAIN_ID, eventName: 'PositionRecorded' }),
+    FreedomPlusEvent.countDocuments({ chainId: env.CHAIN_ID, eventName: { $in: ['PositionRecorded', 'FreedomPlusHistoricalPositionRestored'] } }),
     FreedomPlusPosition.countDocuments({ chainId: env.CHAIN_ID }),
     FreedomPlusEvent.countDocuments({ chainId: env.CHAIN_ID, eventName: { $in: ['ComponentSettled', 'FounderComponentSettled'] } }),
     FreedomPlusPayment.countDocuments({ chainId: env.CHAIN_ID }),

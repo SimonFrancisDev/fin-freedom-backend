@@ -4,6 +4,7 @@ import { getProvider, safeRpcCall } from './provider.js';
 import addresses, { freedomPlusSystemVaults } from './freedomPlusAddresses.js';
 
 import registrationAbi from './freedomPlusRegistrationAbi.js';
+import { freedomPlusHistoricalRepairAbi } from './freedomPlusHistoricalRepair.js';
 import levelManagerAbi from './abis/freedom-plus/FreedomPlusLevelManager.abi.json' with { type: 'json' };
 import routerAbi from './abis/freedom-plus/FreedomPlusSettlementRouter.abi.json' with { type: 'json' };
 import p39Abi from './abis/freedom-plus/P39PlusOrbit.abi.json' with { type: 'json' };
@@ -24,10 +25,10 @@ const specifications = {
   registration: registrationAbi,
   levelManager: levelManagerAbi,
   settlementRouter: routerAbi,
-  p39Orbit: p39Abi,
-  p14Orbit: p14Abi,
-  p12Orbit: p12Abi,
-  p6Orbit: p6Abi,
+  p39Orbit: [...p39Abi, ...freedomPlusHistoricalRepairAbi],
+  p14Orbit: [...p14Abi, ...freedomPlusHistoricalRepairAbi],
+  p12Orbit: [...p12Abi, ...freedomPlusHistoricalRepairAbi],
+  p6Orbit: [...p6Abi, ...freedomPlusHistoricalRepairAbi],
   p4Orbit: p4Abi,
   p3Orbit: p3Abi,
   fpt: fptAbi,
