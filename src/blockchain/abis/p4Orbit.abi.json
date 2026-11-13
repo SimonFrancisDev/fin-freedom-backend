@@ -1650,6 +1650,11 @@
             "internalType": "uint256",
             "name": "mirrorEscrowLockAmount",
             "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mirrorRecycleAmount",
+            "type": "uint256"
           }
         ],
         "internalType": "struct BaseOrbit.MirrorPositionDetailedResult",
