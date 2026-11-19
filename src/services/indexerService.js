@@ -703,11 +703,14 @@ export async function saveReceiptLog(chainId, log, parsed, block) {
     blockNumber: log.blockNumber,
   });
 
-  scheduleOrbitLevelSnapshotRefresh({
-    address: args.orbitOwner ?? args[4] ?? '',
-    level: args.level,
-    blockNumber: log.blockNumber,
-  });
+  const receiptOrbitOwners = new Set([
+    toLower(args.orbitOwner ?? args[4] ?? ''),
+    ...(Number(args.mirroredPosition ?? args[8] ?? 0) > 0 && isDetailed
+      ? [toLower(args.receiver ?? args[0] ?? '')] : []),
+  ]);
+  for (const address of receiptOrbitOwners) {
+    scheduleOrbitLevelSnapshotRefresh({ address, level: args.level, blockNumber: log.blockNumber });
+  }
 }
 
 export async function saveRegistrationLog(chainId, contractAddress, log, parsed, block) {

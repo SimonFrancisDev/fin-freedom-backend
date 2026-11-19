@@ -1,5 +1,7 @@
 import { ethers } from 'ethers';
 import { applyHistoricalOrbitRepair } from '../../blockchain/historicalOrbitRepair.js';
+import { orbitReceiptQuery, selectOrbitReceipts, orbitReceiptMetadata,
+  ORBIT_RECEIPT_SNAPSHOT_VERSIONS } from './orbitReceiptProjection.js';
 import IndexedReceipt from '../../models/IndexedReceipt.js';
 import IndexedOrbitEvent from '../../models/IndexedOrbitEvent.js';
 import OrbitLevelSnapshot from '../../models/OrbitLevelSnapshot.js';
@@ -409,25 +411,6 @@ function getCurrentCycleEvents(allEvents, totalCycles) {
   };
 }
 
-function getCurrentCycleReceipts(allReceipts, lastReset, currentCycleNumber) {
-  return allReceipts.filter(
-    (receipt) => {
-      const sourceCycle = Number(receipt.sourceCycle || 0);
-      const belongsToCurrentCycle =
-        sourceCycle === 0 || sourceCycle === Number(currentCycleNumber || 0);
-      if (!belongsToCurrentCycle) return false;
-      if (!lastReset) return true;
-
-      return compareChainPoint(
-        receipt.blockNumber,
-        receipt.logIndex || 0,
-        lastReset.blockNumber,
-        lastReset.logIndex || 0
-      ) > 0;
-    }
-  );
-}
-
 function buildLinePaymentCountsFromEvents(events) {
   const counts = {
     line1: 0,
@@ -456,12 +439,14 @@ function buildLinePaymentCountsFromEvents(events) {
 }
 
 function buildPositionFromIndexedData({
+  level,
   orbitType,
   positionNumber,
   eventsForPosition,
   receiptsForPosition,
   normalizedAddress,
   currentCycleNumber,
+  lastReset,
 }) {
   const snapshot = buildEmptyPosition(
     orbitType,
@@ -502,14 +487,12 @@ function buildPositionFromIndexedData({
   snapshot.receiptTotals = receiptSummary.totals;
   snapshot.viewerReceiptBreakdown = receiptSummary.viewerBreakdown;
 
-  if (snapshot.activationId === 0) {
-    const firstActivationId = receiptsForPosition.find(
-      (receipt) => Number(receipt.activationId || 0) > 0
-    );
-    snapshot.activationId = firstActivationId
-      ? Number(firstActivationId.activationId || 0)
-      : 0;
-  }
+  const metadata = orbitReceiptMetadata(receiptsForPosition, {
+    address: normalizedAddress, level,
+    position: positionNumber, cycleNumber: currentCycleNumber, afterReset: lastReset,
+  });
+  snapshot.activationId = metadata.activationId || snapshot.activationId;
+  snapshot.isMirrorActivation = metadata.isMirrorActivation;
 
   return snapshot;
 }
@@ -655,10 +638,7 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
       .sort({ blockNumber: 1, logIndex: 1 })
       .lean(),
 
-    IndexedReceipt.find({
-      orbitOwner: normalizedAddress,
-      level,
-    })
+    IndexedReceipt.find(orbitReceiptQuery(normalizedAddress, level))
       .sort({ blockNumber: 1, logIndex: 1 })
       .lean(),
   ]);
@@ -673,11 +653,10 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
     source: cycleSource,
   } = getCurrentCycleEvents(allIndexedEvents, totalCycles);
 
-  const currentReceipts = getCurrentCycleReceipts(
-    allIndexedReceipts,
-    lastReset,
-    currentCycleNumber
-  );
+  const receiptContext = {
+    address: normalizedAddress, level, cycleNumber: currentCycleNumber, afterReset: lastReset,
+  };
+  const currentReceipts = selectOrbitReceipts(allIndexedReceipts, receiptContext);
 
   let positions = [];
   for (let positionNumber = 1; positionNumber <= positionsCount; positionNumber += 1) {
@@ -689,18 +668,19 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
     );
 
     // STRICT LOOKUP - REPLACING groupReceiptsByPosition
-    const receiptsForPosition = currentReceipts.filter(
-      (receipt) =>
-        Number(receipt.sourcePosition || 0) === positionNumber
-    );
+    const receiptsForPosition = selectOrbitReceipts(currentReceipts, {
+      ...receiptContext, position: positionNumber,
+    });
 
     const originalPosition = buildPositionFromIndexedData({
+        level,
         orbitType,
         positionNumber,
         eventsForPosition,
         receiptsForPosition,
         normalizedAddress,
         currentCycleNumber,
+        lastReset,
       });
     positions.push(applyHistoricalOrbitRepair({
       snapshot: originalPosition, position: positionNumber, cycleNumber: currentCycleNumber,
@@ -797,7 +777,7 @@ export async function buildOrbitLevelSnapshot(address, level, options = {}) {
     positions,
 
     metadata: {
-      snapshotVersion: 4,
+      snapshotVersion: ORBIT_RECEIPT_SNAPSHOT_VERSIONS.level,
       builtFromBlock,
       builtAt: new Date(),
       enrichedAt: null,

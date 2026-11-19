@@ -14,6 +14,7 @@ import OrbitCycleSnapshot from '../../models/OrbitCycleSnapshot.js';
 import { buildOrbitLevelSnapshot } from '../snapshots/orbitLevelSnapshotBuilder.js';
 import { buildOrbitPositionSnapshot } from '../snapshots/orbitPositionSnapshotBuilder.js';
 import { buildOrbitCycleSnapshot } from '../snapshots/orbitCycleSnapshotBuilder.js';
+import { orbitReceiptQuery, orbitReceiptMetadata, ORBIT_RECEIPT_SNAPSHOT_VERSIONS } from '../snapshots/orbitReceiptProjection.js';
 import { enrichWalletIdentities } from './identityEnrichmentService.js';
 import { fetchWalletEcosystemEarnings } from '../../ecosystemEarningsQueryService.js';
 
@@ -1031,33 +1032,15 @@ function findBestIndexedPositionFilledEvent(indexedEvents = []) {
   return sorted.length > 0 ? sorted[sorted.length - 1] : null;
 }
 
-function findActivationIdFromIndexedReceipts(
-  receipts = [],
-  cycleNumber,
-  positionNumber
-) {
-  const match = receipts.find(
-    (receipt) =>
-      Number(receipt.sourceCycle || 0) === Number(cycleNumber) &&
-      Number(receipt.sourcePosition || 0) === Number(positionNumber) &&
-      Number(receipt.activationId || 0) > 0
-  );
-
-  return match ? Number(match.activationId) : 0;
-}
-
 async function fetchIndexedReceiptsForHistoricalPosition(
   orbitOwner,
   level,
   cycleNumber,
   positionNumber
 ) {
-  return IndexedReceipt.find({
-    orbitOwner: orbitOwner.toLowerCase(),
-    level,
-    sourceCycle: Number(cycleNumber),
-    sourcePosition: Number(positionNumber),
-  })
+  return IndexedReceipt.find(orbitReceiptQuery(orbitOwner, level, {
+    cycleNumber, position: positionNumber,
+  }))
     .sort({ blockNumber: 1, logIndex: 1 })
     .lean();
 }
@@ -1084,10 +1067,7 @@ async function getLatestIndexedActivityForLevel(address, level, orbitType) {
       .select({ blockNumber: 1, updatedAt: 1, createdAt: 1 })
       .lean(),
 
-    IndexedReceipt.findOne({
-      orbitOwner: address,
-      level,
-    })
+    IndexedReceipt.findOne(orbitReceiptQuery(address, level))
       .sort({ blockNumber: -1, logIndex: -1 })
       .select({ blockNumber: 1, updatedAt: 1, createdAt: 1 })
       .lean(),
@@ -1121,11 +1101,7 @@ async function getLatestIndexedActivityForPosition(address, level, orbitType, po
       .select({ blockNumber: 1, updatedAt: 1, createdAt: 1 })
       .lean(),
 
-    IndexedReceipt.findOne({
-      orbitOwner: address,
-      level,
-      sourcePosition: position,
-    })
+    IndexedReceipt.findOne(orbitReceiptQuery(address, level, { position }))
       .sort({ blockNumber: -1, logIndex: -1 })
       .select({ blockNumber: 1, updatedAt: 1, createdAt: 1 })
       .lean(),
@@ -1159,11 +1135,7 @@ async function getLatestIndexedActivityForCycle(address, level, orbitType, cycle
       .select({ blockNumber: 1, updatedAt: 1, createdAt: 1 })
       .lean(),
 
-    IndexedReceipt.findOne({
-      orbitOwner: address,
-      level,
-      sourceCycle: cycleNumber,
-    })
+    IndexedReceipt.findOne(orbitReceiptQuery(address, level, { cycleNumber }))
       .sort({ blockNumber: -1, logIndex: -1 })
       .select({ blockNumber: 1, updatedAt: 1, createdAt: 1 })
       .lean(),
@@ -1350,11 +1322,13 @@ async function buildHistoricalPositionSnapshot(
   }
 
   if (!activationId && indexedReceiptsForPosition.length > 0) {
-    activationId = findActivationIdFromIndexedReceipts(
-      indexedReceiptsForPosition,
-      cycleNumber,
-      positionNumber
+    const metadata = orbitReceiptMetadata(
+      indexedReceiptsForPosition, {
+        address: normalizedAddress, level, cycleNumber, position: positionNumber,
+      }
     );
+    activationId = metadata.activationId;
+    isMirrorActivation = metadata.isMirrorActivation;
   }
 
   const indexedReceipts =
@@ -1445,7 +1419,8 @@ export const fetchOrbitLevelSnapshot = safeApiResponse(async function fetchOrbit
         orbitType
       );
 
-      const isMissing = !snapshot;
+      const isMissing = !snapshot || Number(snapshot.metadata?.snapshotVersion || 0)
+        < ORBIT_RECEIPT_SNAPSHOT_VERSIONS.level;
       const isIncomplete =
         !snapshot?.metadata?.completeness?.positionsReady ||
         !snapshot?.metadata?.completeness?.summaryReady;
@@ -1589,7 +1564,8 @@ export const fetchOrbitPositionDetails = safeApiResponse(async function fetchOrb
         position
       );
 
-      const isMissing = !snapshot;
+      const isMissing = !snapshot || Number(snapshot.metadata?.snapshotVersion || 0)
+        < ORBIT_RECEIPT_SNAPSHOT_VERSIONS.position;
       const isIncomplete =
         !snapshot?.metadata?.completeness?.receiptsReady ||
         !snapshot?.metadata?.completeness?.eventsReady;
@@ -1743,7 +1719,8 @@ export const fetchOrbitCycleSnapshot = safeApiResponse(async function fetchOrbit
         cycleNumber
       );
 
-      const isMissing = !snapshot;
+      const isMissing = !snapshot || Number(snapshot.metadata?.snapshotVersion || 0)
+        < ORBIT_RECEIPT_SNAPSHOT_VERSIONS.cycle;
       const isIncomplete =
         !snapshot?.metadata?.completeness?.positionsReady ||
         !snapshot?.metadata?.completeness?.historicalReady;

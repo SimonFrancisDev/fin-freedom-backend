@@ -1,5 +1,7 @@
 import { ethers } from 'ethers';
 import { applyHistoricalOrbitRepair } from '../../blockchain/historicalOrbitRepair.js';
+import { orbitReceiptQuery, selectOrbitReceipts, orbitReceiptMetadata,
+  ORBIT_RECEIPT_SNAPSHOT_VERSIONS } from './orbitReceiptProjection.js';
 import IndexedReceipt from '../../models/IndexedReceipt.js';
 import IndexedOrbitEvent from '../../models/IndexedOrbitEvent.js';
 import OrbitPositionSnapshot from '../../models/OrbitPositionSnapshot.js';
@@ -433,18 +435,6 @@ function getCompletedCycleCount(events) {
   return Math.max(...resets.map((event) => Number(event.cycleNumber || 0)));
 }
 
-function findActivationIdFromReceipts(receipts = []) {
-  const match = receipts.find((receipt) => Number(receipt.activationId || 0) > 0);
-  return match ? Number(match.activationId || 0) : 0;
-}
-
-function inferMirrorActivation(eventsForPosition = []) {
-  const spilloverEvent = eventsForPosition.find(
-    (event) => event.eventName === 'SpilloverPaid'
-  );
-  return Boolean(spilloverEvent);
-}
-
 function hasFilledSnapshot(snapshot) {
   return Boolean(snapshot?.occupant);
 }
@@ -577,10 +567,7 @@ export async function buildOrbitPositionSnapshot(address, level, position, optio
       .sort({ blockNumber: 1, logIndex: 1 })
       .lean(),
 
-    IndexedReceipt.find({
-      orbitOwner: normalizedAddress,
-      level,
-    })
+    IndexedReceipt.find(orbitReceiptQuery(normalizedAddress, level))
       .sort({ blockNumber: 1, logIndex: 1 })
       .lean(),
   ]);
@@ -609,42 +596,34 @@ export async function buildOrbitPositionSnapshot(address, level, position, optio
   // );
 
 
-  let filteredReceipts = allReceipts.filter(
-  (receipt) => Number(receipt.sourceCycle || 0) === currentCycleNumber
-  );
-
-  if (filteredReceipts.length === 0) {
-    filteredReceipts = allReceipts.filter((receipt) =>
-      isAfterReset(receipt, lastReset)
-    );
-  }
+  const receiptContext = {
+    address: normalizedAddress, level, cycleNumber: currentCycleNumber, afterReset: lastReset,
+  };
+  const filteredReceipts = selectOrbitReceipts(allReceipts, receiptContext);
 
   const eventsForPosition = sortByChainPoint(
     filteredEvents.filter((event) => Number(event.position || 0) === position)
   );
 
   const receiptsForPosition = sortByChainPoint(
-    filteredReceipts.filter(
-      (receipt) => Number(receipt.sourcePosition || 0) === position
-    )
+    selectOrbitReceipts(filteredReceipts, { ...receiptContext, position })
   );
 
   // const latestFill = [...eventsForPosition]
   //   .reverse()
   //   .find((event) => event.eventName === 'PositionFilled');
 
-  const latestFill =
-  eventsForPosition.length > 0
-    ? eventsForPosition[eventsForPosition.length - 1]
-    : null;
+  const latestFill = [...eventsForPosition].reverse()
+    .find((event) => event.eventName === 'PositionFilled');
 
   const receiptSummary = summarizeReceiptsForViewer(
     receiptsForPosition,
     normalizedAddress
   );
   const ruleView = buildRuleViewFromIndexedEvents(eventsForPosition);
-  const activationId = findActivationIdFromReceipts(receiptsForPosition);
-  const isMirrorActivation = inferMirrorActivation(eventsForPosition);
+  const { activationId, isMirrorActivation } = orbitReceiptMetadata(
+    receiptsForPosition, { ...receiptContext, position }
+  );
 
   let rebuiltSnapshot = {
     occupant: latestFill?.user || null,
@@ -722,7 +701,7 @@ export async function buildOrbitPositionSnapshot(address, level, position, optio
     ruleView: rebuiltSnapshot.ruleView,
 
     metadata: {
-      snapshotVersion: 3,
+      snapshotVersion: ORBIT_RECEIPT_SNAPSHOT_VERSIONS.position,
       builtFromBlock,
       builtAt: new Date(),
       enrichedAt: null,

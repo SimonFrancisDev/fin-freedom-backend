@@ -32,10 +32,8 @@ test('current orbit projections preserve untagged rows after the reset boundary'
     builderSource,
     /cycleNumber === 0 \|\| cycleNumber === currentCycleNumber/
   );
-  assert.match(
-    builderSource,
-    /sourceCycle === 0 \|\| sourceCycle === Number\(currentCycleNumber \|\| 0\)/
-  );
+  assert.match(builderSource, /selectOrbitReceipts\(allIndexedReceipts, receiptContext\)/);
+  assert.match(builderSource, /afterReset: lastReset/);
   assert.doesNotMatch(
     builderSource,
     /Number\(event\.position \|\| 0\) === positionNumber &&\s*Number\(event\.cycleNumber/
@@ -53,7 +51,7 @@ test('a newer indexed placement is rebuilt before the API responds', () => {
 
 test('indexed orbit changes coalesce into a bounded snapshot refresh', () => {
   const refreshCalls =
-    indexerSource.match(/^  scheduleOrbitLevelSnapshotRefresh\(\{/gm) || [];
+    indexerSource.match(/^\s+scheduleOrbitLevelSnapshotRefresh\(\{/gm) || [];
 
   assert.equal(refreshCalls.length, 2);
   assert.match(indexerSource, /ORBIT_SNAPSHOT_REFRESH_CONCURRENCY = 1/);
