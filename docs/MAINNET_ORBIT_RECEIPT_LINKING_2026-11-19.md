@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-Prepared and validated locally on 19 November 2026, then approved for production rollout. Deployment and live verification results will be recorded below once completed. The rollout preserves production environment variables, contracts, payments and indexed source records. The two suspended staging services must remain suspended.
+Deployed and verified on Polygon mainnet production on 19 November 2026. Both production Render services run commit `61993cae3c45f55dcfdcc34abbc19e2f329f79d1`. All nine affected entries passed the live checks in all three views. Production environment values, contracts and payment records were preserved; both staging services remain suspended. A separate historical registration catch-up decoder issue remains open, described below.
 
 The change corrects the F-Freedom backend's association between existing payout receipts and corresponding recipient orbit positions. It does not change placement rules, create positions, move participants, recalculate earnings or send payments. Freedom Plus and NFT behavior are unchanged.
 
@@ -50,7 +50,7 @@ Result: 109 tests passed, zero failed, zero skipped. The new receipt projection 
 
 Additional coverage includes direct-owner receipts and viewer-specific totals, separate source/destination cycles, closing-cycle payouts emitted after reset, legacy boundaries, duplicate delivery, no invented occupant from payment evidence alone, non-placement events, and zero-payment historical repairs. Existing Freedom Plus, NFT worker, earnings and realtime-indexer tests also passed. Snapshot-version and refresh wiring checks are source-level guards, not a substitute for deployment verification.
 
-## Production rollout still required
+## Production rollout procedure
 
 1. Review and commit only this backend correction, its tests, fixture and this document. Preserve unrelated local files.
 2. Deploy that reviewed commit to the existing production API and production worker. Preserve all existing secrets, database configuration, contract addresses and realtime/polling settings. Do not restart either suspended staging service. No Vercel build, contract upgrade or founder proposal is required by this fix.
@@ -58,7 +58,34 @@ Additional coverage includes direct-owner receipts and viewer-specific totals, s
 4. Verify each entry against the fixture: occupied wallet, activation ID, recipient cycle, mirror flag and liquid/escrow split. Also verify the recycled source remains empty in its next cycle and its closing payment remains in the prior history.
 5. Confirm production services are healthy on chain 137, realtime capture remains enabled on the worker, polling remains disabled and the suspended staging services remain suspended. Check the public main-site views after their existing cache expires.
 
-Only after these live checks should this display issue be marked resolved in production. The local test result does not certify later transactions or scenarios absent from the audited window.
+The completed checks below resolve this display issue in production for the nine audited entries. They do not certify later transactions or scenarios absent from the audited window.
+
+## Completed production verification
+
+Code was pushed to `SimonFrancisDev/fin-freedom-backend` branch `main`, without force-pushing or including unrelated local files. Both deployments were pinned to commit `61993cae3c45f55dcfdcc34abbc19e2f329f79d1`.
+
+| Service | Service ID | Deployment ID | Live at UTC |
+| --- | --- | --- | --- |
+| Production API | srv-d7eeof8sfn5c738thl60 | dep-dbvgeqrm8hqs739tqe80 | 19 November 2026 14:28:25 |
+| Production worker | srv-d7eit4favr4c73c08t8g | dep-dbvgerec6qcc73b75v80 | 19 November 2026 14:28:32 |
+
+- All 27 live orbit-view comparisons passed: nine entries across current level, position details and cycle history. None required skipping a changed current cycle.
+- All 15 distinct original payout records across the seven affected activations still match the saved chain evidence, including recipients, coordinates, amounts, transaction hashes and log indices.
+- The recycled source's current level and position detail are empty in cycle 2. Its cycle-1 history retains activation 1192 and the outgoing receipt, with zero earnings credited to the recycling source. These three additional checks passed.
+- Both production health endpoints returned HTTP 200 with database ready state 1. Full sorted environment fingerprints match before and after: all 114 API variables and 115 worker variables are unchanged, including secrets, database URI and contract settings. Both chain IDs remain 137.
+- The worker reported `REALTIME_EVENT_INDEXER_CONNECTED` and `REALTIME_EVENT_INDEXER_STARTED` with 75 listeners at 14:29:23 UTC. It also reported `Polling indexer not started in this process.` Both polling flags remain false.
+- Staging API `srv-d8h37kj7uimc73cg3750` and staging worker `srv-d8h3bptdt1ts73fuc7eg` remain suspended.
+- The public main site returned HTTP 200 and still serves `/assets/index-CcGRg5lU.js`, the previously verified production entry bundle. That bundle still references `https://fin-freedom-backend-3.onrender.com`. No Vercel deployment or environment update was performed.
+
+Detailed evidence is stored locally in `tmp/orbit-receipt-rollout-2026-11-19`: `release.json`, `deployments.json`, `before.json`, `after.json`, `live-verification.json`, `source-and-site-verification.json`, individual API responses and filtered worker logs. Environment evidence contains fingerprints and key names, not secret values.
+
+## Separate open catch-up issue
+
+Worker startup attempted its existing historical recovery and reported `PARSE_LOG_EMPTY` for registration transaction `0xf60d906cc61369abb59881abf3ebb98cf37dbf1b999e8812347ad7af5d0ceff4`, block 97368395, log index 2062. A read-only mainnet receipt check confirmed the emitting address is registration proxy `0x02ECA97e944Ac66b0444fd5F61A716917E83CfF5`.
+
+The log's topic matches `HistoricalMatrixParentRepaired(address,uint8,address,address,bytes32)` in `Id1RegistrationRepairMigrator`, from `contracts/migration/Id1HistoricalRepair.sol`. The ordinary registration decoder does not recognize this historical repair event. The audit snapshot taken before this deployment already recorded an unresolved registration checkpoint range of 97368362-97368461; startup encountered the event again. This is not an RPC outage or evidence of a failed payout.
+
+Realtime subscription startup and the receipt correction passed, but the registration historical catch-up cannot be called healthy while it is blocked on this log. No decoder changes or manual checkpoint advancement were made in this rollout. The next separate correction must recognize the reviewed structural event, test that it cannot produce a registration or payment, and verify bounded recovery through the blocked range. Do not blindly ignore unknown events, advance the checkpoint past them, enable polling or reset the database.
 
 ## Rollback boundary
 
